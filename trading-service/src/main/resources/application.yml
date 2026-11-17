@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: trading-service
+  config:
+    import:
+      - classpath:ledger-defaults.yml
+      - optional:nacos:${spring.application.name}.yml?group=${NACOS_GROUP:LEDGER_GROUP}
+  flyway:
+    default-schema: trading
+    schemas: trading
+    locations: classpath:db/migration/trading
+  grpc:
+    server:
+      port: ${GRPC_PORT:19082}

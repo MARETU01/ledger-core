@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: account-service
+  config:
+    import:
+      - classpath:ledger-defaults.yml
+      - optional:nacos:${spring.application.name}.yml?group=${NACOS_GROUP:LEDGER_GROUP}
+  flyway:
+    default-schema: account
+    schemas: account
+    locations: classpath:db/migration/account
+  grpc:
+    server:
+      port: ${GRPC_PORT:19091}
