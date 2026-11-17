@@ -1,4 +1,4 @@
-package com.ledger.platform;
+package com.ledger.common;
 
 import com.alibaba.cloud.nacos.NacosDiscoveryProperties;
 import com.alibaba.cloud.nacos.registry.NacosAutoServiceRegistration;

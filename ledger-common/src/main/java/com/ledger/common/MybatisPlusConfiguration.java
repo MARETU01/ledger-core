@@ -1,4 +1,4 @@
-package com.ledger.platform;
+package com.ledger.common;
 
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;

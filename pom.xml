@@ -8,7 +8,7 @@
   <groupId>com.ledger</groupId><artifactId>ledger-core</artifactId><version>0.1.0-SNAPSHOT</version><packaging>pom</packaging>
   <name>ledger-core</name>
   <modules>
-    <module>ledger-contracts</module><module>ledger-platform</module>
+    <module>ledger-pb</module><module>ledger-common</module>
     <module>account-service</module><module>trading-service</module>
   </modules>
   <properties>
@@ -22,8 +22,8 @@
       <dependency><groupId>com.baomidou</groupId><artifactId>mybatis-plus-bom</artifactId><version>${mybatis-plus.version}</version><type>pom</type><scope>import</scope></dependency>
       <dependency><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-dependencies</artifactId><version>${spring-cloud.version}</version><type>pom</type><scope>import</scope></dependency>
       <dependency><groupId>com.alibaba.cloud</groupId><artifactId>spring-cloud-alibaba-dependencies</artifactId><version>${spring-cloud-alibaba.version}</version><type>pom</type><scope>import</scope></dependency>
-      <dependency><groupId>com.ledger</groupId><artifactId>ledger-contracts</artifactId><version>${project.version}</version></dependency>
-      <dependency><groupId>com.ledger</groupId><artifactId>ledger-platform</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>com.ledger</groupId><artifactId>ledger-pb</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>com.ledger</groupId><artifactId>ledger-common</artifactId><version>${project.version}</version></dependency>
     </dependencies>
   </dependencyManagement>
   <build>

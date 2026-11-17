@@ -4,7 +4,7 @@
 
 ## 构建与启动
 
-从 Maven 根 POM 导入 IDE 项目，Project SDK 与 Maven Runner 都选择 JDK 25。生成的 Protobuf Java 文件位于 `ledger-contracts/target`，由构建维护，不提交到 Git。
+从 Maven 根 POM 导入 IDE 项目，Project SDK 与 Maven Runner 都选择 JDK 25。生成的 Protobuf Java 文件位于 `ledger-pb/target`，由构建维护，不提交到 Git。
 
 ```bash
 java -version
@@ -22,15 +22,15 @@ mvn -pl account-service -am package -DskipTests
 
 ## 修改 gRPC 协议
 
-1. 在 `ledger-contracts/src/main/proto/ledger/<业务>/v1/` 中维护 `.proto`。
+1. 在 `ledger-pb/src/main/proto/ledger/<业务>/v1/` 中维护 `.proto`。
 2. 定义 `package`、`java_package` 和 `java_multiple_files`，按服务职责设计 RPC。
-3. 执行 `mvn -pl ledger-contracts -am compile` 生成消息类与 stub，不手改 target 中的生成文件。
+3. 执行 `mvn -pl ledger-pb -am compile` 生成消息类与 stub，不手改 target 中的生成文件。
 4. 在对应服务的 `interfaces.grpc` 中用 `@Service` 注册生成的 `ImplBase` 实现，协议对象转换后交给 application 层处理。
 5. 增加真实 gRPC 调用测试，覆盖成功响应、错误状态和超时等与新增行为有关的场景。
 
 协议新增字段使用新编号，已删除字段的编号及名称用 `reserved` 保留，避免重新分配。当前 `ProbeRequest.request_id` 用于诊断透传；新增资金写接口时，需要单独设计业务请求标识和幂等规则。
 
-调用其他服务时，可以参考 [TradingProbeEndpoint](../trading-service/src/main/java/com/ledger/trading/interfaces/grpc/TradingProbeEndpoint.java) 与 [DiscoveryGrpcChannels](../ledger-platform/src/main/java/com/ledger/platform/DiscoveryGrpcChannels.java)。当前探针使用 blocking stub 和 2 秒 deadline；该值写在代码中，尚未暴露环境变量。
+调用其他服务时，可以参考 [TradingProbeEndpoint](../trading-service/src/main/java/com/ledger/trading/interfaces/grpc/TradingProbeEndpoint.java) 与 [DiscoveryGrpcChannels](../ledger-common/src/main/java/com/ledger/common/DiscoveryGrpcChannels.java)。当前探针使用 blocking stub 和 2 秒 deadline；该值写在代码中，尚未暴露环境变量。
 
 ## 新增数据库访问
 

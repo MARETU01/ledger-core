@@ -1,4 +1,4 @@
-package com.ledger.platform;
+package com.ledger.common;
 
 import io.grpc.Channel;
 import io.grpc.ManagedChannel;

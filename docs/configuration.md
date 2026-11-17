@@ -8,7 +8,7 @@
 | --- | --- |
 | [`.env.example`](../.env.example) | 本项目 Compose 的客户端连接模板 |
 | 本机 `.env` | 个人连接配置，Git 忽略；Java 不会自动读取，需要导出环境变量 |
-| [ledger-defaults.yml](../ledger-platform/src/main/resources/ledger-defaults.yml) | 公共配置及环境变量占位符 |
+| [ledger-defaults.yml](../ledger-common/src/main/resources/ledger-defaults.yml) | 公共配置及环境变量占位符 |
 | 服务的 `application.yml` | 服务名、监听端口、Flyway schema/迁移目录及 Nacos 导入 |
 | Nacos 的服务配置 | 按服务名导入的集中配置，可覆盖本地配置项 |
 | Java 启动命令的 `--属性=值` | 对当前进程进行临时覆盖 |

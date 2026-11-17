@@ -2,7 +2,7 @@
 
 [返回项目首页](../README.md)
 
-公共模块使用 `mybatis-plus-spring-boot4-starter`，版本通过根 POM 的 MyBatis-Plus BOM 统一管理。参考[官方安装文档](https://baomidou.com/getting-started/install/)。服务继承 `ledger-platform` 后即可使用，无需单独添加 MyBatis starter 或手动创建 SqlSessionFactory。
+公共模块使用 `mybatis-plus-spring-boot4-starter`，版本通过根 POM 的 MyBatis-Plus BOM 统一管理。参考[官方安装文档](https://baomidou.com/getting-started/install/)。服务继承 `ledger-common` 后即可使用，无需单独添加 MyBatis starter 或手动创建 SqlSessionFactory。
 
 ## 添加业务持久层
 

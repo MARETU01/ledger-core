@@ -115,7 +115,7 @@ GATEWAY_ROUTES_SOURCE=nacos go run ./cmd/gateway
 
 ```bash
 mkdir -p gateway/descriptors
-protoc -I ledger-contracts/src/main/proto \
+protoc -I ledger-pb/src/main/proto \
   --include_imports \
   --descriptor_set_out=gateway/descriptors/platform.pb \
   ledger/platform/v1/probe.proto

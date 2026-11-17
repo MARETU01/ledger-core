@@ -1,10 +1,10 @@
 package com.ledger.trading.interfaces.grpc;
 
-import com.ledger.contracts.platform.v1.AccountProbeGrpc;
-import com.ledger.contracts.platform.v1.ProbeReply;
-import com.ledger.contracts.platform.v1.ProbeRequest;
-import com.ledger.contracts.platform.v1.TradingProbeGrpc;
-import com.ledger.platform.DiscoveryGrpcChannels;
+import com.ledger.pb.platform.v1.AccountProbeGrpc;
+import com.ledger.pb.platform.v1.ProbeReply;
+import com.ledger.pb.platform.v1.ProbeRequest;
+import com.ledger.pb.platform.v1.TradingProbeGrpc;
+import com.ledger.common.DiscoveryGrpcChannels;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;

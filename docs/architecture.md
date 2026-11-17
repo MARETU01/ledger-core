@@ -6,8 +6,8 @@
 
 | 模块 | 当前职责 | 依赖 |
 | --- | --- | --- |
-| `ledger-contracts` | 定义版本化 Protobuf 协议，生成 Java 消息和 gRPC stub | Protobuf、gRPC |
-| `ledger-platform` | 统一中间件配置、MyBatis-Plus 插件、gRPC 注册与发现工具 | Spring Boot、Spring Cloud 和中间件客户端 |
+| `ledger-pb` | 定义版本化 Protobuf 协议，生成 Java 消息和 gRPC stub | Protobuf、gRPC |
+| `ledger-common` | 统一中间件配置、MyBatis-Plus 插件、gRPC 注册与发现工具 | Spring Boot、Spring Cloud 和中间件客户端 |
 | `account-service` | 账户服务启动入口和诊断接口 | contracts、platform |
 | `trading-service` | 交易服务启动入口，演示调用账户服务 | contracts、platform |
 | `gateway` | Go 动态 HTTP → gRPC 转换、Nacos 发现、路由热更新 | 独立 Go Modules，不参与 Maven 构建 |

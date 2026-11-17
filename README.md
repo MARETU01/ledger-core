@@ -34,8 +34,8 @@ Spring Boot、Spring Cloud 选用搭建时 Maven Central 可用的最新正式�
 ## 工程结构
 
 ```text
-ledger-contracts/          # Protobuf 协议及构建时生成的 Java stub
-ledger-platform/           # 公共配置、Nacos gRPC 注册和发现客户端
+ledger-pb/          # Protobuf 协议及构建时生成的 Java stub
+ledger-common/           # 公共配置、Nacos gRPC 注册和发现客户端
 account-service/           # 账户服务，gRPC 19091，独立 account schema
 trading-service/           # 交易服务，gRPC 19082，独立 trading schema
 gateway/                   # Go 动态网关，独立 Go Modules 构建

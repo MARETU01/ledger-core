@@ -1,6 +1,6 @@
 syntax = "proto3";
 package ledger.platform.v1;
-option java_package = "com.ledger.contracts.platform.v1";
+option java_package = "com.ledger.pb.platform.v1";
 option java_multiple_files = true;
 
 // Framework diagnostics only; these RPCs do not execute financial operations.

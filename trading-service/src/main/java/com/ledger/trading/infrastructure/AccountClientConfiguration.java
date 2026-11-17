@@ -1,6 +1,6 @@
 package com.ledger.trading.infrastructure;
 
-import com.ledger.platform.DiscoveryGrpcChannels;
+import com.ledger.common.DiscoveryGrpcChannels;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
