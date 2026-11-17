@@ -1,36 +1,103 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  <parent>
-    <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>4.1.2</version><relativePath/>
-  </parent>
-  <groupId>com.ledger</groupId><artifactId>ledger-core</artifactId><version>0.1.0-SNAPSHOT</version><packaging>pom</packaging>
-  <name>ledger-core</name>
-  <modules>
-    <module>ledger-pb</module><module>ledger-common</module>
-    <module>account-service</module><module>trading-service</module>
-  </modules>
-  <properties>
-    <java.version>25</java.version>
-    <spring-cloud.version>2025.1.4</spring-cloud.version>
-    <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
-    <mybatis-plus.version>3.5.18</mybatis-plus.version>
-  </properties>
-  <dependencyManagement>
-    <dependencies>
-      <dependency><groupId>com.baomidou</groupId><artifactId>mybatis-plus-bom</artifactId><version>${mybatis-plus.version}</version><type>pom</type><scope>import</scope></dependency>
-      <dependency><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-dependencies</artifactId><version>${spring-cloud.version}</version><type>pom</type><scope>import</scope></dependency>
-      <dependency><groupId>com.alibaba.cloud</groupId><artifactId>spring-cloud-alibaba-dependencies</artifactId><version>${spring-cloud-alibaba.version}</version><type>pom</type><scope>import</scope></dependency>
-      <dependency><groupId>com.ledger</groupId><artifactId>ledger-pb</artifactId><version>${project.version}</version></dependency>
-      <dependency><groupId>com.ledger</groupId><artifactId>ledger-common</artifactId><version>${project.version}</version></dependency>
-    </dependencies>
-  </dependencyManagement>
-  <build>
-    <plugins>
-      <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-enforcer-plugin</artifactId>
-        <executions><execution><id>require-jdk25</id><goals><goal>enforce</goal></goals><configuration><rules><requireJavaVersion><version>[25,26)</version></requireJavaVersion><requireMavenVersion><version>[3.9,)</version></requireMavenVersion></rules></configuration></execution></executions>
-      </plugin>
-    </plugins>
-  </build>
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.2</version>
+        <relativePath />
+    </parent>
+
+    <groupId>com.ledger</groupId>
+    <artifactId>ledger-core</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>ledger-core</name>
+
+    <modules>
+        <module>ledger-pb</module>
+        <module>ledger-common</module>
+        <module>account-service</module>
+        <module>trading-service</module>
+    </modules>
+
+    <properties>
+        <java.version>25</java.version>
+        <spring-cloud.version>2025.1.4</spring-cloud.version>
+        <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
+        <mybatis-plus.version>3.5.18</mybatis-plus.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Third-party dependency BOMs -->
+            <dependency>
+                <groupId>com.baomidou</groupId>
+                <artifactId>mybatis-plus-bom</artifactId>
+                <version>${mybatis-plus.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>com.alibaba.cloud</groupId>
+                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+                <version>${spring-cloud-alibaba.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Internal modules -->
+            <dependency>
+                <groupId>com.ledger</groupId>
+                <artifactId>ledger-pb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.ledger</groupId>
+                <artifactId>ledger-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <!-- Enforce the supported Java and Maven versions for all modules. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>require-jdk25</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[25,26)</version>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[3.9,)</version>
+                                </requireMavenVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>
