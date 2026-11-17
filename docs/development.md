@@ -36,7 +36,7 @@ mvn -pl account-service -am package
 
 ## 新增数据库访问
 
-按[数据库访问约定](persistence.md)添加 Flyway 迁移、实体与 Mapper。schema 归属、主键、版本字段由业务明确声明。多个 Mapper 操作需要原子性时，在被其他 Spring Bean 调用的 application 层公共方法上标记 `@Transactional`。
+按[数据库访问约定](persistence.md)在根目录 `db/` 添加并手动执行 SQL，再添加实体与 Mapper。schema 归属、主键、版本字段由业务明确声明。多个 Mapper 操作需要原子性时，在被其他 Spring Bean 调用的 application 层公共方法上标记 `@Transactional`。
 
 ## Kafka 与 Redis 扩展入口
 
@@ -64,8 +64,7 @@ mvn verify
 | gRPC 返回 DEADLINE_EXCEEDED | 检查账户服务地址、网络及耗时；当前下游调用 deadline 为 2 秒 |
 | grpcurl list 失败 | 确认访问的是 Java 服务端口 8081/8082，并使用 `-plaintext`；18848/19848 属于 Nacos |
 | Nacos 登录或连接失败 | 区分 API、客户端 gRPC 和控制台端口，核对认证与 TLS；项目默认分别为 18848、19848、18888 |
-| Flyway checksum mismatch | 已执行迁移文件可能被改动；还原旧文件，以新版本迁移修改结构 |
-| PostgreSQL relation does not exist | 核对迁移是否执行、`@TableName` 的 schema/table，以及 Flyway locations；MyBatis-Plus 不自动建表 |
+| PostgreSQL relation does not exist | 核对根目录 `db/` 中的 SQL 是否已在目标数据库手动执行，以及 `@TableName` 的 schema/table；MyBatis-Plus 不自动建表 |
 | Mapper 无法注入 | 确认有 `@Mapper`，位于应用扫描包下；跨包使用 `@MapperScan` |
 | Invalid bound statement | 核对 Mapper 方法名、XML namespace、XML 路径及是否已打包到资源目录 |
 | 乐观锁没有拦截更新 | 确认实体有 `@Version`、数据库版本字段非空、实体携带读取到的版本，并检查 updateById 返回值 |

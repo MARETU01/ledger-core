@@ -25,8 +25,6 @@ spring:
       maximum-pool-size: 10
       minimum-idle: 1
       connection-timeout: 5000
-  flyway:
-    enabled: true
   data:
     redis:
       host: ${REDIS_HOST:localhost}

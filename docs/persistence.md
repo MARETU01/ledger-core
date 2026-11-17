@@ -6,7 +6,7 @@
 
 ## 添加业务持久层
 
-1. 在服务自己的 `db/migration/account/` 或 `db/migration/trading/` 下新增 Flyway 版本迁移。
+1. 在根目录 `db/account/` 或 `db/trading/` 下新增编号递增的 SQL 文件，并在启动服务前手动执行，具体命令见[数据库 SQL](../db/README.md)。
 2. 实体放在 `com.ledger.<服务>.infrastructure.persistence.entity`，通过 `@TableName(value = "表名", schema = "所属服务 schema")` 明确表归属。
 3. Mapper 放在 `com.ledger.<服务>.infrastructure.persistence.mapper`，添加 `@Mapper` 并继承 `BaseMapper<实体>`。starter 会扫描 Spring Boot 应用包下的 `@Mapper`；跨包扫描时显式配置 `@MapperScan`。
 4. 业务事务边界放在 application 层的 Spring Bean，通过 `@Transactional` 管理多个 Mapper 操作。复杂查询仍可使用 Mapper XML，路径为 `src/main/resources/mapper/**/*.xml`。
@@ -32,7 +32,7 @@ accountMapper.selectPage(new Page<>(1, 20),
 
 以下仅演示持久层接入方式，尚未写入代码仓库或数据库，不代表完整的资金账户模型。示例不包含余额或记账操作。
 
-新增 `account-service/src/main/resources/db/migration/account/V2__create_account_profile.sql`：
+新增 `db/account/002_create_account_profile.sql`：
 
 ```sql
 CREATE TABLE account.account_profile (
@@ -127,7 +127,7 @@ public class AccountProfileService {
 
 调用方通过注入的 Spring Bean 调用该方法，使事务代理生效。示例直接引用 Mapper，适合验证接入；复杂领域用例可在 domain 层定义仓储接口，由 infrastructure 实现。业务状态迁移规则和 gRPC 错误映射需随具体用例补充。
 
-## 自定义 SQL 与迁移维护
+## 自定义 SQL 与结构变更
 
 需要复杂 SQL 时，在 Mapper 声明方法、用 `@Param` 命名参数，并在 `src/main/resources/mapper/AccountMapper.xml` 中维护 SQL。XML 的 namespace 必须匹配 Mapper 全限定名：
 
@@ -144,7 +144,7 @@ public class AccountProfileService {
 
 对应声明为 `long countByStatus(@Param("status") String status);`，使用 `org.apache.ibatis.annotations.Param`。参数值使用 `#{...}` 绑定；列名、排序字段等不能直接拼接外部输入。
 
-Flyway 迁移版本在同一服务内递增；已执行的文件保留原内容，结构调整新增后续版本。服务目前分别扫描 `classpath:db/migration/account` 和 `classpath:db/migration/trading`。数据库初始化由 Flyway 完成，不由 Mapper 或实体注解完成。
+数据库脚本统一保存在根目录 `db/account/` 和 `db/trading/`，按编号递增并手动执行。已执行的文件保留原内容，结构调整新增后续文件；各环境自行记录已执行编号。服务不会扫描或自动执行这些脚本，Mapper 和实体注解也不会创建 schema 或表。初始化与执行命令见[数据库 SQL](../db/README.md)。
 
 ## 已配置的行为
 

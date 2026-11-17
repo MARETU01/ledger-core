@@ -53,11 +53,11 @@ com.ledger.account 或 com.ledger.trading
         └── mapper           # @Mapper + BaseMapper
 ```
 
-账户服务拥有 `account` schema，交易服务拥有 `trading` schema；两者当前共享开发数据库和登录用户。schema 划分是项目约定，当前不是数据库权限隔离。MyBatis 实体需显式标注所属 schema，Flyway 的 default-schema 不会自动改变所有业务 SQL 的 search_path。服务间访问数据通过 gRPC 或后续业务事件，不直接查询对方表。
+账户服务拥有 `account` schema，交易服务拥有 `trading` schema；两者当前共享开发数据库和登录用户。schema 划分是项目约定，当前不是数据库权限隔离。schema 通过根目录 `db/` 中的 SQL 手动创建，服务启动时不自动执行脚本。MyBatis 实体需显式标注所属 schema，业务 SQL 使用完整的 schema.table 名称。服务间访问数据通过 gRPC 或后续业务事件，不直接查询对方表。
 
 ## 当前实现边界
 
-已具备基础构建、服务启动、配置中心、服务发现、诊断 RPC、数据库迁移、MyBatis-Plus CRUD/分页/乐观锁能力，以及 Redis/Kafka 客户端配置。
+已具备基础构建、服务启动、配置中心、服务发现、诊断 RPC、手动数据库初始化脚本、MyBatis-Plus CRUD/分页/乐观锁能力，以及 Redis/Kafka 客户端配置。
 
 目前没有业务表、资金账务、委托状态机、业务消息 topic 或监听器，也没有业务缓存。诊断 `request_id` 只做透传，不是幂等键或完整链路追踪。Go 网关已支持动态 unary 调用、文件/Nacos 配置热更新和可选上游 TLS，详见[网关指南](../gateway/README.md)。完整用户鉴权、资金一致性和业务幂等仍需随业务实现。
 

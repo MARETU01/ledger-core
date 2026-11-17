@@ -10,6 +10,7 @@
 | 启动 Go 动态 HTTP → gRPC 网关、配置动态路由 | [网关指南](gateway/README.md) |
 | 了解模块依赖、调用链和当前边界 | [架构说明](docs/architecture.md) |
 | 配置数据库、Nacos、Kafka、Redis 或复用已有中间件 | [配置与运行](docs/configuration.md) |
+| 初始化数据库、手动执行 SQL | [数据库 SQL](db/README.md) |
 | 使用 MyBatis-Plus、新增表、Mapper 和事务 | [数据库访问约定](docs/persistence.md) |
 | 修改协议、新增功能、构建验证和排查问题 | [开发与排错](docs/development.md) |
 
@@ -39,6 +40,7 @@ ledger-common/             # 公共配置、Nacos gRPC 注册和发现客户端
 account-service/           # 账户服务，gRPC 8081，独立 account schema
 trading-service/           # 交易服务，gRPC 8082，独立 trading schema
 gateway/                   # Go 动态网关，独立 Go Modules 构建
+db/                        # 按服务划分的 SQL，部署前手动执行
 compose.yml                # 本项目独立的开发中间件
 ```
 
@@ -49,6 +51,8 @@ compose.yml                # 本项目独立的开发中间件
 ## 本地启动
 
 需要 JDK 25、本地 Maven 3.9+ 和 Docker Compose；Go 网关可选。以下命令从项目根目录运行，首次构建需要下载依赖。Java 服务在宿主机启动，Compose 只启动中间件。
+
+启动服务前需完成数据库初始化：按[数据库 SQL 说明](db/README.md)执行 `db/account/001_create_schema.sql` 和 `db/trading/001_create_schema.sql`。后续表结构变更也需手动执行对应 SQL，服务启动时不自动初始化数据库。
 
 ### Bash
 
@@ -63,6 +67,7 @@ source .env
 set +a
 
 mvn clean verify
+# 首次启动前，先按 db/README.md 手动执行数据库初始化 SQL。
 java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
 ```
 
@@ -89,6 +94,7 @@ foreach ($line in Get-Content -LiteralPath .env -Encoding utf8) {
 }
 
 mvn clean verify
+# 首次启动前，先按 db/README.md 手动执行数据库初始化 SQL。
 java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
 ```
 
@@ -98,7 +104,7 @@ java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
 
 | 进程 | 默认地址 | 启动顺序 |
 | --- | --- | --- |
-| 账户服务 | gRPC `localhost:8081` | 中间件就绪后启动 |
+| 账户服务 | gRPC `localhost:8081` | 中间件就绪并完成数据库初始化后启动 |
 | 交易服务 | gRPC `localhost:8082` | 账户服务启动后验证调用链 |
 | Go 网关（可选） | HTTP `localhost:8080` | 两个 Java 服务启动后启动 |
 
@@ -148,7 +154,7 @@ grpcurl -plaintext -d '{"requestId":"smoke-001"}' \
 
 ## 中间件与配置
 
-- PostgreSQL：MyBatis-Plus + Spring JDBC + Flyway；服务启动时创建自己的 schema 和迁移历史。V1 只初始化迁移基线，后续业务表通过新增版本迁移维护。MyBatis-Plus 提供 BaseMapper、条件构造器、PostgreSQL 分页（单页上限 500）及 `@Version` 乐观锁，使用方法见[数据库访问约定](docs/persistence.md)。
+- PostgreSQL：MyBatis-Plus + Spring JDBC；SQL 集中在根目录 `db/`，按服务划分并手动执行，服务启动时不自动建 schema 或表。MyBatis-Plus 提供 BaseMapper、条件构造器、PostgreSQL 分页（单页上限 500）及 `@Version` 乐观锁，使用方法见[数据库访问约定](docs/persistence.md)。
 - Kafka：预置 `KafkaTemplate` 和消费者工厂，生产者开启幂等及 `acks=all`，消费者关闭自动提交。当前不创建业务 topic，不启动业务监听器；生产者幂等不等于业务端到端幂等。
 - Redis：预置 `StringRedisTemplate`；尚未缓存业务数据。
 - Nacos：同时接入服务发现与配置中心。默认读取 `LEDGER_GROUP` 下的 `account-service.yml` / `trading-service.yml`，允许配置暂时不存在；namespace 使用命名空间 ID，默认空值表示 public。

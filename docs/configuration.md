@@ -9,7 +9,7 @@
 | [`.env.example`](../.env.example) | 本项目 Compose 的客户端连接模板 |
 | 本机 `.env` | 个人连接配置，Git 忽略；Java 不会自动读取，需要导出环境变量 |
 | [ledger-defaults.yml](../ledger-common/src/main/resources/ledger-defaults.yml) | 公共配置及环境变量占位符 |
-| 服务的 `application.yml` | 服务名、监听端口、Flyway schema/迁移目录及 Nacos 导入 |
+| 服务的 `application.yml` | 服务名、监听端口及 Nacos 导入 |
 | Nacos 的服务配置 | 按服务名导入的集中配置，可覆盖本地配置项 |
 | Java 启动命令的 `--属性=值` | 对当前进程进行临时覆盖 |
 
@@ -91,7 +91,7 @@ spring:
 
 填写本项目 `.env` 或应用启动参数，无需运行项目 Compose。按目标环境核对以下内容：
 
-- PostgreSQL：填入已有实例的库、用户和密码。当前 Flyway 会创建服务 schema，因此数据库用户需要相应建 schema/表权限。
+- PostgreSQL：填入已有实例的库、用户和密码。启动服务前按[数据库 SQL](../db/README.md)手动执行初始化或结构变更脚本；执行脚本的用户需要相应建 schema/表权限，应用用户需要对应的数据访问权限。
 - Nacos：如果目标环境启用了认证或 TLS，需匹配服务器地址、客户端认证和证书信任设置。仅填写用户名密码不等于已完成 TLS 接入；具体证书参数由部署环境提供，Go 网关配置见[网关指南](../gateway/README.md#配置项)。
 - Kafka：按目标监听器填写安全协议、SASL 机制及登录信息，且 advertised address 必须从运行 Java 的机器可达。
 - Redis：按已有实例填写地址、ACL 用户和密码。
