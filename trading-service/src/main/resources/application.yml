@@ -1,10 +1,20 @@
 spring:
   application:
     name: trading-service
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   config:
-    import:
-      - classpath:ledger-defaults.yml
-      - optional:nacos:${spring.application.name}.yml?group=${NACOS_GROUP:LEDGER_GROUP}
-  grpc:
-    server:
-      port: ${GRPC_PORT:8082}
+    import: classpath:bootstrap-${spring.profiles.active}.yml
+  main:
+    web-application-type: none
+  cloud:
+    nacos:
+      username: ${NACOS_USERNAME:}
+      password: ${NACOS_PASSWORD:}
+      discovery:
+        group: ${NACOS_GROUP:LEDGER_GROUP}
+        ip: ${SERVICE_IP:}
+        metadata:
+          protocol: grpc
+      config:
+        group: ${NACOS_GROUP:LEDGER_GROUP}

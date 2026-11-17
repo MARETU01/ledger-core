@@ -18,7 +18,7 @@ mvn clean verify
 mvn -pl account-service -am package
 ```
 
-完整启动流程见首页。IDE 可分别运行 `AccountApplication` 和 `TradingApplication`，将 `.env` 中的变量填写到各运行配置。停服务使用 `Ctrl+C`，触发应用关闭及 Nacos 注销；中间件由实际部署环境单独管理。
+完整启动流程见首页。dev 只需创建 Nacos 注册 namespace 并调整本地 `bootstrap-dev.yml`，无需发布配置；test/prod 先按 [Nacos 发布说明](../config/nacos/README.md)发布运行配置。在 IDE 中运行 `AccountApplication` 或 `TradingApplication`，将 `.env` 中的 Nacos 连接变量填写到运行配置。默认环境为 dev，可用 Active profiles、`SPRING_PROFILES_ACTIVE` 或 `--spring.profiles.active=test` / `prod` 切换。`application.yml` 动态导入对应的 `bootstrap-*.yml`，无需添加 bootstrap starter。停服务使用 `Ctrl+C`，触发应用关闭及 Nacos 注销。
 
 ## 修改 gRPC 协议
 
@@ -32,7 +32,9 @@ mvn -pl account-service -am package
 
 模块名为 `ledger-pb`，生成的 Java 包为 `com.ledger.pb.platform.v1`；当前 Protobuf package 仍为 `ledger.platform.v1`，因此 gRPC 方法名仍是 `/ledger.platform.v1.AccountProbe/Check` 等。模块或 Java 包改名不要求修改协议 package。
 
-调用其他服务时，可以参考 [TradingProbeEndpoint](../trading-service/src/main/java/com/ledger/trading/interfaces/grpc/TradingProbeEndpoint.java) 与 [DiscoveryGrpcChannels](../ledger-common/src/main/java/com/ledger/common/DiscoveryGrpcChannels.java)。当前探针使用 blocking stub 和 2 秒 deadline；该值写在代码中，尚未暴露环境变量。
+调用其他服务时，可以参考 [TradingProbeEndpoint](../trading-service/src/main/java/com/ledger/trading/interfaces/grpc/TradingProbeEndpoint.java) 与 [DiscoveryGrpcChannels](../trading-service/src/main/java/com/ledger/trading/infrastructure/grpc/DiscoveryGrpcChannels.java)。发现客户端由交易服务维护。当前探针使用 blocking stub 和 2 秒 deadline；该值写在代码中，尚未暴露环境变量。
+
+每个服务独立声明中间件依赖并维护 `application.yml`。Nacos gRPC 注册与 MyBatis 插件使用各服务 `infrastructure.config` 下的普通 `@Configuration` 类，由应用扫描加载，无需自动配置导入清单。Nacos 注册监听器在 gRPC 启动事件发生时获取注册组件，避免提前判断 Bean 是否存在；未启用 Nacos 注册时跳过处理。修改这两项基础配置时需分别检查两个服务。
 
 ## 新增数据库访问
 
@@ -58,11 +60,13 @@ mvn verify
 | 现象 | 检查与处理 |
 | --- | --- |
 | Enforcer 提示 Java 版本不匹配 | 检查 `java -version`、`mvn --version` 和 IDE Maven Runner，均应使用 JDK 25 |
-| Java 服务仍连接 5432/6379/8848，未使用自定义端口 | 确认当前终端已导入 `.env`；Java 不会自动读取该文件 |
+| Java 服务连接了错误的数据库/Redis/Kafka 地址 | dev 检查本地 `bootstrap-dev.yml`；test/prod 检查当前 namespace 下的公共配置及服务覆盖项；`POSTGRES_*` 等旧变量不再被配置引用 |
+| 切换到 test/prod 后出现 unresolved placeholder | 提供 `NACOS_SERVER_ADDR`，并核对所选环境的 namespace、group 和远端配置 |
+| test/prod 的 Nacos 配置加载失败或数据源缺少 URL | 核对公共和服务专属 Data ID 均已发布且非空；不会回退到 dev 的本地配置 |
 | gRPC 提示 address already in use | 检查旧服务进程；使用当前进程的 `GRPC_PORT` 覆盖监听端口 |
 | TradingProbe 返回 UNAVAILABLE | 确认账户服务已启动且注册成功，双方 namespace/group 一致，实例有 `protocol=grpc` 且地址可达；停止服务后发现视图可能需要时间更新 |
 | gRPC 返回 DEADLINE_EXCEEDED | 检查账户服务地址、网络及耗时；当前下游调用 deadline 为 2 秒 |
-| grpcurl list 失败 | 确认访问的是 Java 服务端口 8081/8082，并使用 `-plaintext`；18848/19848 属于 Nacos |
+| grpcurl list 失败 | 确认访问的是 Java 服务端口 8081/8082，并使用 `-plaintext`；8848/9848 属于 Nacos |
 | Nacos 登录或连接失败 | 按实际部署区分 API、客户端 gRPC 和控制台端口，核对认证与 TLS；Java 和 Go 网关的连接配置需分别填写 |
 | PostgreSQL relation does not exist | 核对根目录 `db/` 中的 SQL 是否已在目标数据库手动执行，以及 `@TableName` 的 schema/table；MyBatis-Plus 不自动建表 |
 | Mapper 无法注入 | 确认有 `@Mapper`，位于应用扫描包下；跨包使用 `@MapperScan` |

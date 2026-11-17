@@ -19,7 +19,6 @@
 
     <modules>
         <module>ledger-pb</module>
-        <module>ledger-common</module>
         <module>account-service</module>
         <module>trading-service</module>
     </modules>
@@ -62,12 +61,6 @@
             <dependency>
                 <groupId>com.ledger</groupId>
                 <artifactId>ledger-pb</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.ledger</groupId>
-                <artifactId>ledger-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

@@ -23,7 +23,7 @@ func TestRuntimeDefaultsAndPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := filepath.Dir(filename)
-	if cfg.ListenAddr != "127.0.0.1:8080" || cfg.RoutesSource != "file" || cfg.Nacos.ServerAddr != "localhost:18848" || cfg.Nacos.Group != "LEDGER_GROUP" {
+	if cfg.ListenAddr != "127.0.0.1:8080" || cfg.RoutesSource != "file" || cfg.Nacos.ServerAddr != "localhost:8848" || cfg.Nacos.Namespace != "ledger-dev" || cfg.Nacos.Group != "LEDGER_GROUP" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 	if cfg.RoutesFile != filepath.Join(base, "routes.yml") || cfg.DescriptorDir != filepath.Dir(base) || cfg.StateDir != "" {

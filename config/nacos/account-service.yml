@@ -1,0 +1,6 @@
+# Data ID: account-service.yml，Group: LEDGER_GROUP。
+# 在这里覆盖该服务的公共配置，并添加后续业务参数。
+spring:
+  grpc:
+    server:
+      port: ${GRPC_PORT:8081}

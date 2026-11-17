@@ -6,18 +6,65 @@
 
 | 文件或来源 | 作用 |
 | --- | --- |
-| [`.env.example`](../.env.example) | Java 服务的中间件连接模板 |
-| 本机 `.env` | 个人连接配置，Git 忽略；Java 不会自动读取，需要导出环境变量 |
-| [gateway/config/config.yaml](../gateway/config/config.yaml) | Go 网关启动配置，包括监听、路由来源、Nacos、TLS 和访问 token |
-| [gateway/config/routes.yml](../gateway/config/routes.yml) | HTTP → gRPC 路由规则，支持热更新 |
-| [ledger-defaults.yml](../ledger-common/src/main/resources/ledger-defaults.yml) | 公共配置及环境变量占位符 |
-| 服务的 `application.yml` | 服务名、监听端口及 Nacos 导入 |
-| Nacos 的服务配置 | 按服务名导入的集中配置，可覆盖本地配置项 |
-| Java 启动命令的 `--属性=值` | 对当前进程进行临时覆盖 |
+| [`.env.example`](../.env.example) / 本机 `.env` | Java profile、Nacos 地址/认证、分组及实例注册 IP；`.env` 不会自动加载 |
+| [账户 application.yml](../account-service/src/main/resources/application.yml) / [交易 application.yml](../trading-service/src/main/resources/application.yml) | 服务名、默认 dev、非 HTTP 启动方式、Nacos 公共配置和环境导入规则 |
+| 各服务的 `bootstrap-dev.yml` | 完整的本地开发配置；Nacos 仅用于注册与发现，配置中心关闭 |
+| 各服务的 `bootstrap-test.yml` / `bootstrap-prod.yml` | 环境对应的 Nacos 地址、namespace 及远端配置导入 |
+| [config/nacos/](../config/nacos/README.md) | 需发布到 Nacos 的配置模板，不作为本地回退配置 |
+| Nacos 的 `ledger-infrastructure.yml` | 数据库、Redis、Kafka、连接池、MyBatis、日志等公共运行配置 |
+| Nacos 的 `account-service.yml` / `trading-service.yml` | 各服务的 gRPC 端口及公共配置覆盖项 |
+| [gateway/config/config.yaml](../gateway/config/config.yaml) | Go 网关启动配置，独立于 Java 与 Nacos 运行配置 |
+| [gateway/config/routes.yml](../gateway/config/routes.yml) | 网关默认路由规则，支持热更新 |
 
-Java 服务与 Go 网关使用独立的配置来源：Java 使用 `.env` 导出的环境变量及 Spring/Nacos 配置；Go 网关只读取指定的启动 YAML。修改 `.env` 不会影响网关，修改 `gateway/config/config.yaml` 也不会影响 Java 服务。
+Java dev 环境从本地 `bootstrap-dev.yml` 读取完整运行配置，Nacos 仅用于注册与发现，不读取配置中心。test/prod 在本地取得 Nacos 连接信息，再读取远端运行配置。Go 网关独立读取启动 YAML，不读取 `.env`，默认也使用本地路由文件和 Nacos 服务发现。
 
-`.env.example` 使用示例端口；公共 YAML 的默认值使用中间件标准端口。请按实际部署编辑 `.env`，再为 Java 服务导入环境变量。仓库不附带中间件 Compose 文件。环境变量通过 YAML 占位符提供值；如果 Nacos 同时提供同名完整属性，最终以 Spring 属性来源优先级为准，不能假设占位符一定覆盖远端配置。排查时可先移除重复配置，或用启动参数明确指定。
+## 环境切换
+
+每个 Java 服务的资源目录包含：
+
+```text
+application.yml       # 必要启动配置和 Nacos 公共参数
+bootstrap-dev.yml     # 完整本地开发配置，仅使用 Nacos 注册与发现
+bootstrap-test.yml    # Nacos 测试环境连接与配置导入
+bootstrap-prod.yml    # Nacos 生产环境连接与配置导入
+```
+
+这些 `bootstrap-*.yml` 通过一条动态 `spring.config.import` 加载，无需添加 bootstrap starter：
+
+```yaml
+spring:
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  config:
+    import: classpath:bootstrap-${spring.profiles.active}.yml
+```
+
+只需设置一个环境变量 `SPRING_PROFILES_ACTIVE`，未设置时使用 dev。请选择 dev、test、prod 中的单个环境；该导入方式不支持逗号分隔的多 profile 值。也可通过 `--spring.profiles.active=test` 覆盖选择，文件名会随最终的 profile 一起切换。
+
+| Profile | 默认 namespace ID | Nacos 地址 |
+| --- | --- | --- |
+| dev | `ledger-dev` | `NACOS_SERVER_ADDR`，默认 `localhost:8848` |
+| test | `ledger-test` | 需提供 `NACOS_SERVER_ADDR` |
+| prod | `ledger-prod` | 需提供 `NACOS_SERVER_ADDR` |
+
+Group 默认 `LEDGER_GROUP`。namespace 必须提前创建；`NACOS_NAMESPACE` 可覆盖默认 ID。切换 profile 会选择对应 namespace，但不会自动创建 namespace、复制配置或替换已导出的 Nacos 地址。若显式设置了 `NACOS_NAMESPACE`，需在切换环境时一起调整。
+
+dev 的 `spring.cloud.nacos.config.enabled` 和 `import-check.enabled` 均为 false，`spring.cloud.nacos.discovery.enabled` 为 true。开发时直接修改各服务 `bootstrap-dev.yml` 中的数据库、Redis、Kafka 等参数，无需在 `ledger-dev` 发布任何配置；注册中心仍需可访问。test/prod 的公共与服务专属配置需先发布到对应 namespace。
+
+```bash
+# 默认开发环境，使用本地配置，只需准备中间件和 Nacos 注册中心
+java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
+# 测试环境
+java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar --spring.profiles.active=test
+# 生产环境
+java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar --spring.profiles.active=prod
+```
+
+上述单行命令同样适用于 PowerShell。也可通过 `SPRING_PROFILES_ACTIVE` 或 IDE 的 Active profiles 选择环境；命令行参数优先于 `.env` 导出的 profile。
+
+## 导入启动环境变量
+
+先将 `.env.example` 复制为 `.env`，填写实际 Nacos 连接信息。`.env` 已被 Git 忽略；Java 不会自动读取它。
 
 ### Bash
 
@@ -30,7 +77,7 @@ set +a
 
 ### PowerShell
 
-在项目根目录执行。以下代码读取模板使用的 `KEY=VALUE` 格式，忽略空行和注释，并移除值两端的单引号或双引号：
+在项目根目录执行，读取 `KEY=VALUE` 格式，忽略空行和注释：
 
 ```powershell
 if (!(Test-Path -LiteralPath .env)) { Copy-Item -LiteralPath .env.example -Destination .env }
@@ -42,45 +89,33 @@ foreach ($line in Get-Content -LiteralPath .env -Encoding utf8) {
 }
 ```
 
-它只设置当前终端及其子进程的环境变量，不执行 Bash 的变量展开或命令。每个用于启动服务的新终端都需要重新导入；在 IDE 中运行时，将变量填入运行配置。
+只影响当前终端及其子进程。启动另一个 Java 服务的新终端需重新导入；IDE 中将这些变量填入对应运行配置。
 
 ## 环境变量
 
-| 变量 | 模板示例 | 含义 |
+| 变量 | 模板示例或默认值 | 含义 |
 | --- | --- | --- |
-| `POSTGRES_URL` | `jdbc:postgresql://localhost:15432/ledger` | JDBC 地址 |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` | 见 `.env.example` | 数据库登录信息 |
-| `REDIS_HOST` / `REDIS_PORT` | `localhost` / `16379` | Redis 连接地址 |
-| `REDIS_USERNAME` / `REDIS_PASSWORD` | 空 | Redis ACL 用户及密码 |
-| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` | Kafka 初始 broker 地址，多个地址逗号分隔 |
-| `KAFKA_SECURITY_PROTOCOL` | `PLAINTEXT` | 客户端连接协议 |
-| `KAFKA_SASL_MECHANISM` | `PLAIN` | SASL 机制，仅启用 SASL 协议时使用 |
-| `KAFKA_SASL_JAAS_CONFIG` | 空 | SASL 登录配置 |
-| `NACOS_SERVER_ADDR` | `localhost:18848` | Nacos 服务端地址 |
+| `SPRING_PROFILES_ACTIVE` | `dev` | Java 环境，可选 dev / test / prod |
+| `NACOS_SERVER_ADDR` | `localhost:8848` | Nacos API 地址 |
 | `NACOS_USERNAME` / `NACOS_PASSWORD` | 空 | Nacos 认证信息 |
-| `NACOS_NAMESPACE` | 空 | namespace ID，空表示 public |
-| `NACOS_GROUP` | `LEDGER_GROUP` | 配置和服务发现使用的组 |
-| `SERVICE_IP` | `127.0.0.1` | 注册给其他服务访问的地址 |
-| `GRPC_PORT` | 账户 8081 / 交易 8082 | 覆盖当前 Java 进程的 gRPC 端口 |
+| `NACOS_NAMESPACE` | 默认随 profile 选择 | 实际 namespace ID；留空字符串表示 public，通常无需显式设置 |
+| `NACOS_GROUP` | `LEDGER_GROUP` | 配置与服务发现的组 |
+| `SERVICE_IP` | 示例为 `127.0.0.1` | 注册给调用方访问的 IP；跨机器时改为可达地址 |
+| `GRPC_PORT` | 账户 8081 / 交易 8082 | dev 本地配置及 test/prod 远端模板均支持覆盖当前实例端口 |
 
-`SERVICE_IP=127.0.0.1` 适用于两个服务都在宿主机启动。跨机器或容器部署时，要改成调用方可达的地址。分别启动多个服务时，按进程设置 `GRPC_PORT`，避免两个进程共用同一个导出的端口。
-
-```bash
-GRPC_PORT=19191 java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
-```
-
-PowerShell 中，在启动该服务的终端执行 `$env:GRPC_PORT = '19191'`；恢复默认值使用 `Remove-Item Env:GRPC_PORT`。
+原有 `.env` 中的 `POSTGRES_*`、`REDIS_*`、`KAFKA_*` 不再被配置引用，可移除；dev 直接修改本地 `bootstrap-dev.yml`，test/prod 将原值迁入目标 Nacos 配置。不要将真实凭据写回仓库模板。
 
 ## Nacos 配置中心
 
-| 服务 | Data ID | 默认 Group | 默认 namespace |
-| --- | --- | --- | --- |
-| 账户 | `account-service.yml` | `LEDGER_GROUP` | public |
-| 交易 | `trading-service.yml` | `LEDGER_GROUP` | public |
+先按 [Nacos 发布说明](../config/nacos/README.md)创建对应 namespace。dev 只使用注册中心，无需发布配置；test/prod 需在各自 namespace 下发布以下配置，格式均为 YAML：
 
-配置格式选 YAML。可以先不创建配置，直接使用本地值。`optional:nacos:` 允许配置资源不存在，不表示 Nacos 不可用时整个应用仍保证启动；服务注册仍依赖 Nacos。
+| Data ID | 模板 | 用途 |
+| --- | --- | --- |
+| `ledger-infrastructure.yml` | [公共运行配置](../config/nacos/ledger-infrastructure.yml) | 两个服务共享的中间件与运行参数 |
+| `account-service.yml` | [账户配置](../config/nacos/account-service.yml) | 账户端口与专属覆盖项 |
+| `trading-service.yml` | [交易配置](../config/nacos/trading-service.yml) | 交易端口与专属覆盖项 |
 
-例如在某个服务的 Data ID 中调整连接池大小：
+模板使用示例值，发布前需按目标 test/prod 环境修改地址、认证和运行参数。两个服务分别先导入公共配置，再导入自身配置；服务配置可覆盖公共项，例如：
 
 ```yaml
 spring:
@@ -89,44 +124,36 @@ spring:
       maximum-pool-size: 15
 ```
 
-发布配置后，重启相应服务验证。当前没有为业务 Bean 设计动态刷新机制，不保证所有配置都能即时生效。配置数据的持久化由 Nacos 部署管理。
+test/prod 使用非 optional 的 `nacos:` 导入，加载异常会终止启动，不回退读取 dev 配置。当前 SDK 可能将缺失或为空的 Data ID 视为空配置，启动前应核对全部配置已发布且非空。
+
+发布后重启对应服务验证。目前不保证数据库连接池、Kafka 客户端或 gRPC 端口支持即时刷新。仓库模板不会自动发布，配置中心的修改也不会自动写回仓库。
 
 ## 复用已有中间件
 
-为 Java 服务填写 `.env` 或应用启动参数，为 Go 网关填写 `gateway/config/config.yaml`。按目标环境核对以下内容：
+在 Java `.env` 中配置 Nacos；dev 在本地 `bootstrap-dev.yml` 中配置中间件，test/prod 在目标 namespace 的远端 YAML 中配置：
 
-- PostgreSQL：填入已有实例的库、用户和密码。启动服务前按[数据库 SQL](../db/README.md)手动执行初始化或结构变更脚本；执行脚本的用户需要相应建 schema/表权限，应用用户需要对应的数据访问权限。
-- Nacos：如果目标环境启用了认证或 TLS，需匹配服务器地址、客户端认证和证书信任设置。仅填写用户名密码不等于已完成 TLS 接入；具体证书参数由部署环境提供，Go 网关配置见[网关指南](../gateway/README.md#配置项)。
-- Kafka：按目标监听器填写安全协议、SASL 机制及登录信息，且 advertised address 必须从运行 Java 的机器可达。
-- Redis：按已有实例填写地址、ACL 用户和密码。
+- PostgreSQL：修改 `spring.datasource` 的库、用户和密码，并按[数据库 SQL](../db/README.md)手动执行初始化或结构变更脚本。
+- Redis：修改 `spring.data.redis` 的地址、ACL 用户和密码。
+- Kafka：修改 `spring.kafka` 的地址、安全协议及 SASL 参数。broker 的 advertised address 也必须从 Java 服务所在机器可达。
+- Nacos：地址、namespace、group 和认证均从本地启动配置取得；TLS 需按部署环境配置。Go 网关使用独立的 YAML 连接配置。
 
-SASL 配置值包含空格和分号，供 Bash `source` 使用时用单引号包住整个值。以下使用示例凭据：
+Kafka 的 SASL 配置填写在当前环境的本地或远端 YAML，例如：
 
-```bash
-KAFKA_SECURITY_PROTOCOL=SASL_PLAINTEXT
-KAFKA_SASL_MECHANISM=PLAIN
-KAFKA_SASL_JAAS_CONFIG='org.apache.kafka.common.security.plain.PlainLoginModule required username="example-user" password="example-password";'
+```yaml
+spring:
+  kafka:
+    properties:
+      security.protocol: SASL_PLAINTEXT
+      sasl.mechanism: PLAIN
+      sasl.jaas.config: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="example-user" password="example-password";'
 ```
 
 ## 中间件生命周期
 
-中间件由各自部署环境启动、停止和维护。启动 Java 服务前，确认数据库及 Nacos 可访问，并按[数据库 SQL](../db/README.md)完成 schema 初始化。Kafka 和 Redis 的业务使用需对应服务可用。
-
-修改 `.env` 中的 PostgreSQL 密码只改变客户端配置，不会修改数据库内的用户密码。数据库数据、Nacos 配置和消息的持久化策略由实际部署决定。Kafka advertised address 必须从运行 Java 服务的机器可达；容器部署时需核对内外部监听地址。
+中间件由部署环境单独管理。启动服务前确认 Nacos 注册中心和数据库可访问，并完成 schema 初始化；test/prod 还需确认远端配置已发布。使用 Kafka/Redis 业务能力时需对应服务可用。修改 YAML 中的数据库密码只改变客户端配置，不会修改数据库内的密码。数据库数据、Nacos 配置和消息的持久化策略由实际部署决定。
 
 ## Go 动态网关
 
-Go 网关独立读取 [gateway/config/config.yaml](../gateway/config/config.yaml)，无需导入 `.env`，也不读取环境变量。按 Java 服务使用的 Nacos 地址、namespace、group 和凭据填写其中的 `nacos` 配置。从 `gateway/` 运行 `go run ./cmd/gateway`，或用 `-config` 指定配置文件；相对路径以配置文件所在目录为基准。网关独立监听 HTTP 8080，不改变 Java gRPC 端口。路由、TLS、静态地址及热更新说明见[网关指南](../gateway/README.md)。
+网关独立读取 [gateway/config/config.yaml](../gateway/config/config.yaml)，无需导入 `.env`。开发环境默认 namespace 为 `ledger-dev`；连接 test/prod 时将 `nacos.namespace` 改为 `ledger-test` / `ledger-prod` 或实际 ID，地址、group 和凭据也需与 Java 服务对齐。
 
-例如 Java 的 `.env` 使用 `NACOS_SERVER_ADDR=localhost:18848` 和 `NACOS_GROUP=LEDGER_GROUP`，网关需单独填写：
-
-```yaml
-nacos:
-  server_addr: localhost:18848
-  namespace: ""
-  group: LEDGER_GROUP
-  username: ""
-  password: ""
-```
-
-从旧环境变量配置迁移时，将 `GATEWAY_*` 值转填到网关 YAML；Nacos 地址和凭据也填入 `nacos` 节点。个人 `.env` 中原有的 `GATEWAY_*` 可以删除，Java 使用的 `NACOS_*` 仍需保留。网关不会展开 YAML 字符串中的 `${变量名}`。
+从 `gateway/` 运行 `go run ./cmd/gateway`，或用 `-config` 指定启动配置。相对路径以启动配置所在目录为准。网关路由、TLS 及热更新说明见[网关指南](../gateway/README.md)。

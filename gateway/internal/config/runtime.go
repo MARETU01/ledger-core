@@ -48,7 +48,7 @@ func LoadRuntime(filename string) (*Runtime, error) {
 	cfg := Runtime{
 		ListenAddr: "127.0.0.1:8080", RoutesSource: "file", RoutesFile: "routes.yml",
 		NacosDataID: "gateway-routes.yml", DescriptorDir: "..",
-		Nacos: Nacos{ServerAddr: "localhost:18848", Group: "LEDGER_GROUP"},
+		Nacos: Nacos{ServerAddr: "localhost:8848", Namespace: "ledger-dev", Group: "LEDGER_GROUP"},
 	}
 	data, err := io.ReadAll(io.LimitReader(f, MaxConfigBytes+1))
 	if err != nil {

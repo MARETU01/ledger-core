@@ -17,8 +17,8 @@ db/
 先准备 PostgreSQL 数据库和登录用户，再从项目根目录执行以下示例，按实际环境替换连接参数：
 
 ```bash
-psql -X -h localhost -p 15432 -U ledger -d ledger -v ON_ERROR_STOP=1 --single-transaction -f db/account/001_create_schema.sql
-psql -X -h localhost -p 15432 -U ledger -d ledger -v ON_ERROR_STOP=1 --single-transaction -f db/trading/001_create_schema.sql
+psql -X -h localhost -p 5432 -U ledger -d ledger -v ON_ERROR_STOP=1 --single-transaction -f db/account/001_create_schema.sql
+psql -X -h localhost -p 5432 -U ledger -d ledger -v ON_ERROR_STOP=1 --single-transaction -f db/trading/001_create_schema.sql
 ```
 
 命令同样适用于 PowerShell。`psql` 会按需提示输入密码；也可通过 PostgreSQL 密码文件配置认证。不要将 JDBC 格式的 `POSTGRES_URL` 直接传给 `psql`。

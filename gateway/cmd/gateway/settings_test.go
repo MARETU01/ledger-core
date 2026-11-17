@@ -10,7 +10,7 @@ import (
 func TestNacosParametersFromConfig(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "state")
 	cfg := config.Nacos{
-		ServerAddr: "https://nacos.example:18848,http://localhost:8848",
+		ServerAddr: "https://nacos.example:9443,http://localhost:8848",
 		Namespace:  "dev", Username: "user", Password: "pass",
 		TLS: config.TLS{Enabled: true, CAFile: "nacos.pem", ServerName: "nacos.example"},
 	}
@@ -18,7 +18,7 @@ func TestNacosParametersFromConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(param.ServerConfigs) != 2 || param.ServerConfigs[0].Scheme != "https" || param.ServerConfigs[0].IpAddr != "nacos.example" || param.ServerConfigs[0].Port != 18848 {
+	if len(param.ServerConfigs) != 2 || param.ServerConfigs[0].Scheme != "https" || param.ServerConfigs[0].IpAddr != "nacos.example" || param.ServerConfigs[0].Port != 9443 {
 		t.Fatalf("unexpected Nacos servers: %+v", param.ServerConfigs)
 	}
 	c := param.ClientConfig

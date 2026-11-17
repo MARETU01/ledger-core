@@ -1,4 +1,4 @@
-package com.ledger.common;
+package com.ledger.trading.infrastructure.grpc;
 
 import io.grpc.Channel;
 import io.grpc.ManagedChannel;

@@ -7,14 +7,13 @@
 | 模块 | 当前职责 | 依赖 |
 | --- | --- | --- |
 | `ledger-pb` | 定义版本化 Protobuf 协议，生成 Java 消息和 gRPC stub | Protobuf、gRPC |
-| `ledger-common` | 统一中间件配置、MyBatis-Plus 插件、gRPC 注册与发现工具 | Spring Boot、Spring Cloud 和中间件客户端 |
-| `account-service` | 账户服务启动入口和诊断接口 | ledger-pb、ledger-common |
-| `trading-service` | 交易服务启动入口，演示调用账户服务 | ledger-pb、ledger-common |
+| `account-service` | 账户服务启动入口、诊断接口、服务自身的中间件配置与 Nacos 注册 | ledger-pb、Spring Boot、Spring Cloud 和中间件客户端 |
+| `trading-service` | 交易服务启动入口、账户调用、gRPC 发现客户端及服务自身的基础配置 | ledger-pb、Spring Boot、Spring Cloud 和中间件客户端 |
 | `gateway` | Go 动态 HTTP → gRPC 转换、Nacos 发现、路由热更新 | 独立 Go Modules，不参与 Maven 构建 |
 
 服务构建时保留普通 JAR，并生成带 `exec` classifier 的可执行 JAR。运行服务使用 `*-exec.jar`。
 
-`ledger-pb` 与 `ledger-common` 都是依赖库，无需独立部署。`ledger-common` 放共用技术配置和客户端；余额、记账、委托等业务规则放在对应 service 中。
+`ledger-pb` 是协议依赖库，无需独立部署。两个服务分别声明中间件依赖，`application.yml` 只维护必要启动项和 Nacos 公共参数，按 profile 导入对应的 bootstrap 文件。dev 完整使用本地 `bootstrap-dev.yml`，Nacos 仅用于注册与发现，配置中心和导入检查均关闭。test/prod 先读取 Nacos 的 `ledger-infrastructure.yml`，再读取自己的服务配置，模板在 `config/nacos/`。环境 namespace 默认分别为 `ledger-dev`、`ledger-test`、`ledger-prod`。根 POM 只统一依赖版本与构建约束，基础配置类位于各服务的 `infrastructure.config`。
 
 ## 当前调用链
 
@@ -34,9 +33,9 @@ sequenceDiagram
     T-->>C: service、request_id、downstream_service
 ```
 
-Java 侧两个服务都使用 `web-application-type: none`。`GrpcDiscoveryConfiguration` 监听 gRPC 启动事件，取得实际监听端口后触发 Nacos 注册，不依赖 HTTP WebServer 启动事件。`ledger-common` 引入 `spring-boot-web-server` 是为了提供 Spring Cloud 注册基类引用的事件类型，不会因此启动 HTTP 服务器。
+Java 侧两个服务都使用 `web-application-type: none`。各自的 `GrpcDiscoveryConfiguration` 监听 gRPC 启动事件，通过 `ObjectProvider` 获取 Nacos 注册组件，取得实际监听端口后触发注册；注册组件不存在时跳过处理，不依赖 HTTP WebServer 启动事件。两个服务显式引入 `spring-boot-web-server`，用于提供 Spring Cloud 注册基类引用的事件类型，不会因此启动 HTTP 服务器。Nacos 注册和 MyBatis 插件类都是普通 `@Configuration`，由各服务组件扫描加载，无需自动配置导入清单。
 
-`DiscoveryGrpcChannels` 每次选择实例时过滤 `protocol=grpc` 元数据，按轮询选择实例，并按地址复用 ManagedChannel。当前不实现自动重试、熔断或失效地址连接的主动淘汰；缓存连接在应用关闭时释放。
+交易服务的 `infrastructure.grpc.DiscoveryGrpcChannels` 每次选择实例时过滤 `protocol=grpc` 元数据，按轮询选择实例，并按地址复用 ManagedChannel。当前不实现自动重试、熔断或失效地址连接的主动淘汰；缓存连接在应用关闭时释放。
 
 ## 业务分层与数据归属
 

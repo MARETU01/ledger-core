@@ -18,6 +18,8 @@ go run ./cmd/gateway
 
 默认监听 `127.0.0.1:8080`，通过 Nacos 发现上游，每秒检查 `config/routes.yml`。初始配置无效或反射加载失败时退出，因此应先启动后端服务。
 
+dev 默认使用本地启动配置和路由文件，Nacos 仅作注册与发现，无需发布网关路由或 Java 运行配置。Java 服务的完整开发配置在各自的 `bootstrap-dev.yml`；test/prod 才使用远端 Java 配置。
+
 PowerShell 用户在项目根目录执行 `Set-Location gateway` 和 `go run ./cmd/gateway`。在另一个终端验证 HTTP：
 
 ```powershell
@@ -125,7 +127,7 @@ cp config/routes.yml config/routes.local.yml
 
 ### Nacos 配置中心
 
-在 Nacos 中创建 YAML 配置，以默认路由文件作为初始内容：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 public。通过 `config/config.yaml` 的 `nacos_data_id`、`nacos.group`、`nacos.namespace` 修改这些值。
+在 Nacos 中创建 YAML 配置，以默认路由文件作为初始内容：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 `ledger-dev`。通过 `config/config.yaml` 的 `nacos_data_id`、`nacos.group`、`nacos.namespace` 修改这些值；test/prod 对应 `ledger-test` / `ledger-prod` 或实际 namespace ID。
 
 ```yaml
 # config/config.yaml
@@ -184,8 +186,8 @@ static_targets: 'account-service=127.0.0.1:8081;trading-service=127.0.0.1:8082'
 | `state_dir` | 默认用户缓存目录下的 ledger-core-gateway，存放 SDK 缓存与日志 |
 | `grpc_tls.enabled` | 默认 false；true 时启用上游证书验证 |
 | `grpc_tls.ca_file` / `grpc_tls.server_name` | 可选上游 CA 和证书名称，CA 需要启用 gRPC TLS |
-| `nacos.server_addr` | 默认 localhost:18848，支持逗号分隔的多个地址及 http/https scheme |
-| `nacos.namespace` / `nacos.group` | 默认 public / LEDGER_GROUP |
+| `nacos.server_addr` | 默认 localhost:8848，支持逗号分隔的多个地址及 http/https scheme |
+| `nacos.namespace` / `nacos.group` | 默认 ledger-dev / LEDGER_GROUP |
 | `nacos.username` / `nacos.password` | 已有部署的认证信息 |
 | `nacos.tls.enabled` / `nacos.tls.ca_file` / `nacos.tls.server_name` | Nacos SDK TLS 开关、CA 和证书名称，默认关闭 TLS |
 

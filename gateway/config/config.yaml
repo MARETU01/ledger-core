@@ -1,6 +1,6 @@
 # 网关启动配置；相对路径以本文件所在目录为基准。修改后重启网关。
 listen_addr: 127.0.0.1:8080
-routes_source: file # file 或 nacos；路由规则支持热更新
+routes_source: file # dev 使用本地路由，Nacos 仅做服务发现；也可按需切换为 nacos
 routes_file: routes.yml
 nacos_data_id: gateway-routes.yml
 descriptor_dir: ..
@@ -14,8 +14,8 @@ grpc_tls:
   ca_file: ""
   server_name: ""
 nacos:
-  server_addr: localhost:18848
-  namespace: "" # namespace ID；空表示 public
+  server_addr: localhost:8848
+  namespace: ledger-dev # 与 Java dev 环境保持一致；test/prod 使用对应的 namespace ID
   group: LEDGER_GROUP
   username: ""
   password: ""

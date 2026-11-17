@@ -4,7 +4,7 @@ import com.ledger.pb.platform.v1.AccountProbeGrpc;
 import com.ledger.pb.platform.v1.ProbeReply;
 import com.ledger.pb.platform.v1.ProbeRequest;
 import com.ledger.pb.platform.v1.TradingProbeGrpc;
-import com.ledger.common.DiscoveryGrpcChannels;
+import com.ledger.trading.infrastructure.grpc.DiscoveryGrpcChannels;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;

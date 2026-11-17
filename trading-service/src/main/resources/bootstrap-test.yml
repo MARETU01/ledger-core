@@ -1,0 +1,13 @@
+# test 环境：先连接 Nacos，再依次加载公共配置和服务专属配置。
+spring:
+  config:
+    import:
+      - nacos:ledger-infrastructure.yml?group=${NACOS_GROUP:LEDGER_GROUP}
+      - nacos:${spring.application.name}.yml?group=${NACOS_GROUP:LEDGER_GROUP}
+  cloud:
+    nacos:
+      server-addr: ${NACOS_SERVER_ADDR}
+      discovery:
+        namespace: ${NACOS_NAMESPACE:ledger-test}
+      config:
+        namespace: ${NACOS_NAMESPACE:ledger-test}

@@ -1,14 +1,14 @@
-package com.ledger.common;
+package com.ledger.account.infrastructure.config;
 
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 
-@AutoConfiguration(beforeName = "com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration")
+@Configuration(proxyBeanMethods = false)
 public class MybatisPlusConfiguration {
     @Bean
     @ConditionalOnMissingBean(MybatisPlusInterceptor.class)
