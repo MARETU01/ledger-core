@@ -11,4 +11,4 @@ spring:
     locations: classpath:db/migration/trading
   grpc:
     server:
-      port: ${GRPC_PORT:19082}
+      port: ${GRPC_PORT:8082}

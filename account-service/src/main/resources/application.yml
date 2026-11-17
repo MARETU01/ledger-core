@@ -11,4 +11,4 @@ spring:
     locations: classpath:db/migration/account
   grpc:
     server:
-      port: ${GRPC_PORT:19091}
+      port: ${GRPC_PORT:8081}
