@@ -18,7 +18,7 @@ mvn clean verify
 mvn -pl account-service -am package
 ```
 
-完整启动流程见首页。dev 只需创建 Nacos 注册 namespace 并调整本地 `bootstrap-dev.yml`，无需发布配置；test/prod 先按 [Nacos 发布说明](../config/nacos/README.md)发布运行配置。在 IDE 中运行 `AccountApplication` 或 `TradingApplication`，将 `.env` 中的 Nacos 连接变量填写到运行配置。默认环境为 dev，可用 Active profiles、`SPRING_PROFILES_ACTIVE` 或 `--spring.profiles.active=test` / `prod` 切换。`application.yml` 动态导入对应的 `bootstrap-*.yml`，无需添加 bootstrap starter。停服务使用 `Ctrl+C`，触发应用关闭及 Nacos 注销。
+完整启动流程见首页。dev 只需创建 Nacos 注册 namespace 并调整本地 `bootstrap-dev.yml`，无需发布配置；test/prod 先按 [Nacos 发布说明](../config/nacos/README.md)发布运行配置。IDE 可直接运行 `AccountApplication` 或 `TradingApplication`，无需 `.env`。默认 Nacos 地址为 `localhost:8848`、Group 为 `LEDGER_GROUP`，namespace 随 profile 选择；部署时按需覆盖。默认环境为 dev，可用 Active profiles、`SPRING_PROFILES_ACTIVE` 或 `--spring.profiles.active=test` / `prod` 切换。`application.yml` 动态导入对应的 `bootstrap-*.yml`，无需添加 bootstrap starter。停服务使用 `Ctrl+C`，触发应用关闭及 Nacos 注销。
 
 ## 修改 gRPC 协议
 
@@ -61,7 +61,7 @@ mvn verify
 | --- | --- |
 | Enforcer 提示 Java 版本不匹配 | 检查 `java -version`、`mvn --version` 和 IDE Maven Runner，均应使用 JDK 25 |
 | Java 服务连接了错误的数据库/Redis/Kafka 地址 | dev 检查本地 `bootstrap-dev.yml`；test/prod 检查当前 namespace 下的公共配置及服务覆盖项；`POSTGRES_*` 等旧变量不再被配置引用 |
-| 切换到 test/prod 后出现 unresolved placeholder | 提供 `NACOS_SERVER_ADDR`，并核对所选环境的 namespace、group 和远端配置 |
+| 切换到 test/prod 后无法连接 Nacos | 默认地址为 localhost:8848，按实际部署覆盖，并核对所选环境的 namespace、group 和认证 |
 | test/prod 的 Nacos 配置加载失败或数据源缺少 URL | 核对公共和服务专属 Data ID 均已发布且非空；不会回退到 dev 的本地配置 |
 | gRPC 提示 address already in use | 检查旧服务进程；使用当前进程的 `GRPC_PORT` 覆盖监听端口 |
 | TradingProbe 返回 UNAVAILABLE | 确认账户服务已启动且注册成功，双方 namespace/group 一致，实例有 `protocol=grpc` 且地址可达；停止服务后发现视图可能需要时间更新 |

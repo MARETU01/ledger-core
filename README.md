@@ -39,7 +39,6 @@ gateway/                   # Go 动态网关，独立 Go Modules 构建
   config/routes.yml        # HTTP → gRPC 路由规则，支持热更新
 db/                        # 按服务划分的 SQL，部署前手动执行
 config/nacos/              # 发布到 Nacos 的公共与服务专属配置模板
-.env.example               # Java 服务的环境变量模板
 ```
 
 服务通过 `interfaces.grpc → application → domain` 组织业务，基础设施实现放在 `infrastructure`。当前只有诊断接口及必要配置，业务分层随实际用例添加。禁止跨服务直接访问对方 schema。
@@ -48,56 +47,29 @@ config/nacos/              # 发布到 Nacos 的公共与服务专属配置模�
 
 ## 本地启动
 
-需要 JDK 25、本地 Maven 3.9+，以及可访问的 PostgreSQL、Nacos、Kafka 和 Redis；Go 网关可选。开发环境先准备中间件，在 Nacos 创建 `ledger-dev` namespace，将 `.env.example` 复制为 `.env` 并填写注册中心连接信息，按实际环境调整两个服务的 `bootstrap-dev.yml`。dev 无需发布 Nacos 配置；test/prod 则需按 [Nacos 发布说明](config/nacos/README.md)发布公共、账户和交易配置。以下命令从项目根目录运行，首次构建需要下载依赖。
+需要 JDK 25、本地 Maven 3.9+，以及可访问的 PostgreSQL、Nacos、Kafka 和 Redis；Go 网关可选。开发环境先准备中间件，在 Nacos 创建 `ledger-dev` namespace，默认注册中心地址为 `localhost:8848`、Group 为 `LEDGER_GROUP`，无需 `.env` 文件，按实际环境调整两个服务的 `bootstrap-dev.yml`。dev 无需发布 Nacos 配置；test/prod 则需按 [Nacos 发布说明](config/nacos/README.md)发布公共、账户和交易配置。以下命令从项目根目录运行，首次构建需要下载依赖。
 
 启动服务前需完成数据库初始化：按[数据库 SQL 说明](db/README.md)执行 `db/account/001_create_schema.sql` 和 `db/trading/001_create_schema.sql`。后续表结构变更也需手动执行对应 SQL，服务启动时不自动初始化数据库。
 
 Java 服务默认使用 `dev`，namespace ID 为 `ledger-dev`。测试或生产环境通过 `--spring.profiles.active=test` / `prod` 或 `SPRING_PROFILES_ACTIVE` 切换，默认 namespace 分别为 `ledger-test` / `ledger-prod`；可用 `NACOS_NAMESPACE` 覆盖实际 ID。详见[环境切换](docs/configuration.md#环境切换)。`bootstrap-*.yml` 由 `application.yml` 显式导入。
 
-### Bash
+### 启动服务
+
+以下单行命令同样适用于 Bash 和 PowerShell，从项目根目录执行：
 
 ```bash
-# 已有 .env 时保留自己的配置。
-test -f .env || cp .env.example .env
-
-# 首次使用时先编辑 .env；Java 进程需要显式导入环境变量。
-set -a
-source .env
-set +a
-
 mvn clean verify
 # 首次启动前，先按 db/README.md 手动执行数据库初始化 SQL。
 java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
 ```
 
-另开终端，在项目根目录导入同一份 `.env`，再启动交易服务：
+另开终端，在项目根目录启动交易服务：
 
 ```bash
-set -a
-source .env
-set +a
 java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar
 ```
 
-### Windows PowerShell
-
-```powershell
-if (!(Test-Path -LiteralPath .env)) { Copy-Item -LiteralPath .env.example -Destination .env }
-
-# 首次使用时先编辑 .env，再导入环境变量。
-foreach ($line in Get-Content -LiteralPath .env -Encoding utf8) {
-    if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
-        $value = $Matches[2].Trim().Trim([char[]]@(34, 39))
-        [Environment]::SetEnvironmentVariable($Matches[1], $value, 'Process')
-    }
-}
-
-mvn clean verify
-# 首次启动前，先按 db/README.md 手动执行数据库初始化 SQL。
-java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
-```
-
-另开终端，按[PowerShell 环境变量导入](docs/configuration.md#powershell)加载 `.env`，再运行 `java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar`。
+无需导入环境变量文件。实际 Nacos 地址、namespace 或凭据与默认值不同时，可用命令行或部署环境变量覆盖，详见[临时覆盖配置](docs/configuration.md#临时覆盖配置)。
 
 ### 地址与启动顺序
 
@@ -166,7 +138,7 @@ go run ./cmd/gateway
 - Redis：预置 `StringRedisTemplate`；尚未缓存业务数据。
 - Nacos：dev 仅使用注册与发现，配置中心已关闭。test/prod 先读取 `LEDGER_GROUP` 下的 `ledger-infrastructure.yml`，再读取自身的 `account-service.yml` / `trading-service.yml`，需在启动前发布。环境 namespace 默认分别为 `ledger-dev`、`ledger-test`、`ledger-prod`。
 
-Java 的 Nacos 连接模板见 [.env.example](.env.example)；dev 运行参数在各服务的 `bootstrap-dev.yml`，test/prod 远端模板见 [config/nacos/](config/nacos/README.md)。Go 网关配置见 [gateway/config/config.yaml](gateway/config/config.yaml)。接入中间件时，按[配置与运行](docs/configuration.md#复用已有中间件)填写地址、认证及 TLS 配置。
+Java 的 Nacos 默认连接配置位于各服务本地 YAML；dev 运行参数在各服务的 `bootstrap-dev.yml`，test/prod 远端模板见 [config/nacos/](config/nacos/README.md)。Go 网关配置见 [gateway/config/config.yaml](gateway/config/config.yaml)。接入中间件时，按[配置与运行](docs/configuration.md#复用已有中间件)填写地址、认证及 TLS 配置。
 
 ## 构建验证
 

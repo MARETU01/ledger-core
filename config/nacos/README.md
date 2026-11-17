@@ -29,7 +29,7 @@
 1. 选择目标环境对应的 namespace，使用 `LEDGER_GROUP`。
 2. 将公共模板中的地址、凭据和运行参数改为目标环境的实际值，再发布。仓库中的值只是连接示例。
 3. 分别发布账户和交易配置，默认端口为 8081、8082。
-4. 将 `.env.example` 复制为 `.env`，填写 Nacos 连接信息并导入终端；按需选择 profile。
+4. 选择 test/prod profile。默认地址为 `localhost:8848`、Group 为 `LEDGER_GROUP`，namespace 随环境选择；实际连接信息不同时，用环境变量或命令行覆盖，无需 `.env`。
 5. 手动执行数据库初始化 SQL，再启动服务并验证 gRPC 调用链。
 
 test/prod 的每个 namespace 均需发布完整的三份配置，切换 profile 不会复制远端配置。模板文件的修改也不会自动同步到 Nacos，dev 的本地配置与本目录模板分别维护。

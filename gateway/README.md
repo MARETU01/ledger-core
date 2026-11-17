@@ -211,7 +211,7 @@ HTTP 入口当前为明文开发监听，对外 HTTPS 由部署入口处理。�
 | `NACOS_USERNAME` / `NACOS_PASSWORD` | `nacos.username` / `nacos.password` |
 | `NACOS_TLS_ENABLED` / `NACOS_CA_FILE` / `NACOS_SERVER_NAME` | `nacos.tls.enabled` / `nacos.tls.ca_file` / `nacos.tls.server_name` |
 
-Java 服务仍使用 `.env` 中的 `NACOS_*`，需要与网关 YAML 保持一致。YAML 中的 `${变量名}` 不会展开为环境变量。
+Java 服务的 Nacos 默认值在本地 YAML 中，也支持 `NACOS_*` 环境变量覆盖；部署时需与网关 YAML 保持一致，无需 `.env`。网关 YAML 中的 `${变量名}` 不会展开为环境变量。
 
 ## 错误与上下文
 
@@ -244,7 +244,7 @@ CGO_ENABLED=1 go test -race ./...
 
 默认测试不需要中间件，测试后端在运行时构造协议，不依赖业务 stub。覆盖启动配置的默认值、相对路径、错误配置、TLS/Nacos 参数，以及反射依赖、描述文件、动态方法、参数类型、body 限制、超时/错误、身份头过滤、路由切换、实例移除及恢复。
 
-进程级联调当前使用 Unix SIGTERM 关闭临时网关，建议在 Linux/WSL 中运行。测试的静态发现分支仍固定访问账户 `19091`、交易 `19082`，因此需要在两个已导入 `.env` 的终端中分别覆盖 Java 端口：
+进程级联调当前使用 Unix SIGTERM 关闭临时网关，建议在 Linux/WSL 中运行。测试的静态发现分支仍固定访问账户 `19091`、交易 `19082`，因此需要在两个终端中分别覆盖 Java 端口；Nacos 使用本地 YAML 默认值或部署环境变量：
 
 ```bash
 # 终端一：从项目根目录运行。

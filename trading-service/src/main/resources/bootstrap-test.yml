@@ -6,7 +6,7 @@ spring:
       - nacos:${spring.application.name}.yml?group=${NACOS_GROUP:LEDGER_GROUP}
   cloud:
     nacos:
-      server-addr: ${NACOS_SERVER_ADDR}
+      server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
       discovery:
         namespace: ${NACOS_NAMESPACE:ledger-test}
       config:

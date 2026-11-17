@@ -6,7 +6,6 @@
 
 | 文件或来源 | 作用 |
 | --- | --- |
-| [`.env.example`](../.env.example) / 本机 `.env` | Java profile、Nacos 地址/认证、分组及实例注册 IP；`.env` 不会自动加载 |
 | [账户 application.yml](../account-service/src/main/resources/application.yml) / [交易 application.yml](../trading-service/src/main/resources/application.yml) | 服务名、默认 dev、非 HTTP 启动方式、Nacos 公共配置和环境导入规则 |
 | 各服务的 `bootstrap-dev.yml` | 完整的本地开发配置；Nacos 仅用于注册与发现，配置中心关闭 |
 | 各服务的 `bootstrap-test.yml` / `bootstrap-prod.yml` | 环境对应的 Nacos 地址、namespace 及远端配置导入 |
@@ -44,8 +43,8 @@ spring:
 | Profile | 默认 namespace ID | Nacos 地址 |
 | --- | --- | --- |
 | dev | `ledger-dev` | `NACOS_SERVER_ADDR`，默认 `localhost:8848` |
-| test | `ledger-test` | 需提供 `NACOS_SERVER_ADDR` |
-| prod | `ledger-prod` | 需提供 `NACOS_SERVER_ADDR` |
+| test | `ledger-test` | `NACOS_SERVER_ADDR`，默认 `localhost:8848` |
+| prod | `ledger-prod` | `NACOS_SERVER_ADDR`，默认 `localhost:8848` |
 
 Group 默认 `LEDGER_GROUP`。namespace 必须提前创建；`NACOS_NAMESPACE` 可覆盖默认 ID。切换 profile 会选择对应 namespace，但不会自动创建 namespace、复制配置或替换已导出的 Nacos 地址。若显式设置了 `NACOS_NAMESPACE`，需在切换环境时一起调整。
 
@@ -60,50 +59,40 @@ java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar --sprin
 java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar --spring.profiles.active=prod
 ```
 
-上述单行命令同样适用于 PowerShell。也可通过 `SPRING_PROFILES_ACTIVE` 或 IDE 的 Active profiles 选择环境；命令行参数优先于 `.env` 导出的 profile。
+上述单行命令同样适用于 PowerShell。也可通过 `SPRING_PROFILES_ACTIVE` 或 IDE 的 Active profiles 选择环境；命令行参数优先于环境变量。项目无需创建或导入 `.env` 文件。
 
-## 导入启动环境变量
+## 临时覆盖配置
 
-先将 `.env.example` 复制为 `.env`，填写实际 Nacos 连接信息。`.env` 已被 Git 忽略；Java 不会自动读取它。
-
-### Bash
+所有环境都已有 YAML 默认值，不需要 `.env` 文件。默认 Nacos 地址为 `localhost:8848`，Group 为 `LEDGER_GROUP`，namespace 随 profile 选择。与实际部署不同时，可以直接修改对应 YAML，或在启动命令中覆盖：
 
 ```bash
-test -f .env || cp .env.example .env
-set -a
-source .env
-set +a
+java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar --spring.profiles.active=test --spring.cloud.nacos.server-addr=nacos.example:8848
 ```
 
-### PowerShell
-
-在项目根目录执行，读取 `KEY=VALUE` 格式，忽略空行和注释：
+也可以使用进程环境变量；例如 PowerShell：
 
 ```powershell
-if (!(Test-Path -LiteralPath .env)) { Copy-Item -LiteralPath .env.example -Destination .env }
-foreach ($line in Get-Content -LiteralPath .env -Encoding utf8) {
-    if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
-        $value = $Matches[2].Trim().Trim([char[]]@(34, 39))
-        [Environment]::SetEnvironmentVariable($Matches[1], $value, 'Process')
-    }
-}
+$env:SPRING_PROFILES_ACTIVE = 'test'
+$env:NACOS_SERVER_ADDR = 'nacos.example:8848'
+java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
 ```
 
-只影响当前终端及其子进程。启动另一个 Java 服务的新终端需重新导入；IDE 中将这些变量填入对应运行配置。
+部署时通过容器或 Pod 的环境变量注入实际地址和凭据。IDE 中可设置 Active profiles 和进程环境变量。这些覆盖均不依赖 dotenv 文件。
 
 ## 环境变量
 
-| 变量 | 模板示例或默认值 | 含义 |
+| 可选环境变量 | 默认值 | 含义 |
 | --- | --- | --- |
 | `SPRING_PROFILES_ACTIVE` | `dev` | Java 环境，可选 dev / test / prod |
 | `NACOS_SERVER_ADDR` | `localhost:8848` | Nacos API 地址 |
 | `NACOS_USERNAME` / `NACOS_PASSWORD` | 空 | Nacos 认证信息 |
 | `NACOS_NAMESPACE` | 默认随 profile 选择 | 实际 namespace ID；留空字符串表示 public，通常无需显式设置 |
 | `NACOS_GROUP` | `LEDGER_GROUP` | 配置与服务发现的组 |
-| `SERVICE_IP` | 示例为 `127.0.0.1` | 注册给调用方访问的 IP；跨机器时改为可达地址 |
 | `GRPC_PORT` | 账户 8081 / 交易 8082 | dev 本地配置及 test/prod 远端模板均支持覆盖当前实例端口 |
 
-原有 `.env` 中的 `POSTGRES_*`、`REDIS_*`、`KAFKA_*` 不再被配置引用，可移除；dev 直接修改本地 `bootstrap-dev.yml`，test/prod 将原值迁入目标 Nacos 配置。不要将真实凭据写回仓库模板。
+Nacos 客户端自动选择本机 IP 作为实例注册地址，无需设置 `SERVICE_IP`。Pod 中通常会选择容器网络地址；多网卡环境若自动选择的地址不可达，可通过 Spring 的 `spring.cloud.nacos.discovery.network-interface` 指定网卡。调用方需能访问所注册的地址。
+
+dev 直接修改本地 `bootstrap-dev.yml`，test/prod 在目标 Nacos 中修改中间件参数。历史 `.env` 无需保留，但迁移前应确认其中的自定义地址或凭据已转移到对应配置或部署环境。不要将真实凭据写回仓库模板。
 
 ## Nacos 配置中心
 
@@ -130,7 +119,7 @@ test/prod 使用非 optional 的 `nacos:` 导入，加载异常会终止启动�
 
 ## 复用已有中间件
 
-在 Java `.env` 中配置 Nacos；dev 在本地 `bootstrap-dev.yml` 中配置中间件，test/prod 在目标 namespace 的远端 YAML 中配置：
+Java 的 Nacos 默认连接参数位于本地 YAML；地址或认证不同于默认值时，通过部署环境变量、IDE 或命令行覆盖。dev 在本地 `bootstrap-dev.yml` 中配置中间件，test/prod 在目标 namespace 的远端 YAML 中配置：
 
 - PostgreSQL：修改 `spring.datasource` 的库、用户和密码，并按[数据库 SQL](../db/README.md)手动执行初始化或结构变更脚本。
 - Redis：修改 `spring.data.redis` 的地址、ACL 用户和密码。

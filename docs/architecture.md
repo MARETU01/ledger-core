@@ -62,7 +62,7 @@ com.ledger.account 或 com.ledger.trading
 
 ## 动态网关的数据流
 
-网关启动时读取独立的 `gateway/config/config.yaml`，配置 HTTP 监听、Nacos、上游 TLS、访问 token 及路由来源，不读取 Java 使用的 `.env` 或环境变量。可用 `-config` 指定其他启动配置；配置内相对路径以该文件所在目录为基准。服务发现和远端路由共用 YAML 中的 Nacos namespace/group，需与 Java 服务的注册配置对齐。
+网关启动时读取独立的 `gateway/config/config.yaml`，配置 HTTP 监听、Nacos、上游 TLS、访问 token 及路由来源，不读取环境变量。Java 和网关均无需 `.env` 文件。可用 `-config` 指定其他启动配置；配置内相对路径以该文件所在目录为基准。服务发现和远端路由共用 YAML 中的 Nacos namespace/group，需与 Java 服务的注册配置对齐。
 
 启动配置在进程启动时加载，修改后需要重启。路由规则由 `routes_source` 选择本地文件或 Nacos：默认每秒检查 `config/routes.yml`，Nacos 模式订阅 `gateway-routes.yml`。两种来源的路由规则均支持热更新。
 

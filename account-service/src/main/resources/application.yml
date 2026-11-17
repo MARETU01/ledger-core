@@ -13,7 +13,6 @@ spring:
       password: ${NACOS_PASSWORD:}
       discovery:
         group: ${NACOS_GROUP:LEDGER_GROUP}
-        ip: ${SERVICE_IP:}
         metadata:
           protocol: grpc
       config:

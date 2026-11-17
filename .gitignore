@@ -10,4 +10,3 @@
 /gateway/descriptors/*.pb
 .env
 .env.*
-!.env.example
