@@ -7,6 +7,7 @@
 | 任务 | 文档 |
 | --- | --- |
 | 首次运行、启动服务和调用诊断接口 | 本页“本地启动”和“gRPC 验证” |
+| 启动 Go 动态 HTTP → gRPC 网关、配置动态路由 | [网关指南](gateway/README.md) |
 | 了解模块依赖、调用链和当前边界 | [架构说明](docs/architecture.md) |
 | 配置数据库、Nacos、Kafka、Redis 或复用已有中间件 | [配置与运行](docs/configuration.md) |
 | 使用 MyBatis-Plus、新增表、Mapper 和事务 | [数据库访问约定](docs/persistence.md) |
@@ -21,6 +22,7 @@
 | Spring Cloud | 2025.1.4 |
 | Spring Cloud Alibaba | 2025.1.0.0 |
 | Spring gRPC | 1.1.2，由 Spring Boot 管理 |
+| Go（网关） | 1.27.4 |
 | MyBatis-Plus | 3.5.18，Spring Boot 4 starter |
 | PostgreSQL | 18.7 |
 | Nacos | 3.3.0 |
@@ -37,7 +39,7 @@ ledger-platform/           # 公共配置、Nacos gRPC 注册和发现客户端
 account-service/           # 账户服务，gRPC 19091，独立 account schema
 trading-service/           # 交易服务，gRPC 19082，独立 trading schema
 ledger-integration-tests/  # 调用链与可选真实中间件验证
-gateway/                   # 网关占位，暂不参与构建
+gateway/                   # Go 动态网关，独立 Go Modules 构建
 compose.yml                # 本项目独立的开发中间件
 ```
 
@@ -70,7 +72,7 @@ set +a
 java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar
 ```
 
-所有服务使用 `web-application-type: none`，不启动 HTTP 服务、不提供 REST 接口。gRPC 服务启动后将实际监听端口注册到 Nacos，元数据为 `protocol=grpc`；关闭应用时由 Nacos 自动注册组件注销实例。
+Java 服务使用 `web-application-type: none`，不启动 HTTP 服务、不提供 REST 接口。gRPC 服务启动后将实际监听端口注册到 Nacos，元数据为 `protocol=grpc`；关闭应用时由 Nacos 自动注册组件注销实例。
 
 | 中间件 | 本项目地址 |
 | --- | --- |
@@ -107,6 +109,10 @@ grpcurl -plaintext -d '{"requestId":"smoke-001"}' \
 ```
 
 `grpcurl` 是可选工具，未安装时可以通过下方测试命令验证调用链。诊断接口不执行开户、资金变更或证券委托。
+
+## Go 动态网关
+
+网关对外提供 HTTP/JSON，对内通过 Nacos 发现 Java gRPC 服务，支持反射/描述文件动态调用与路由热更新。它不需要生成业务 Go stub，不参与 Maven 构建；需要 Go 1.27.4。启动方式及更新路由见[网关指南](gateway/README.md)。
 
 ## 中间件与配置
 

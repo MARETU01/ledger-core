@@ -87,4 +87,10 @@ LEDGER_INFRA_TEST=true mvn -pl ledger-integration-tests -am test \
 | Kafka 能连接 bootstrap 却无法收发 | broker 返回的 advertised address 也必须可达；核对 SASL 配置与 topic 是否存在 |
 | 修改 PostgreSQL 开发密码后认证失败 | 已存在的数据卷不会重新初始化密码，使用库内现有凭据或按数据库管理流程修改 |
 
-当前业务服务没有 HTTP Actuator 端口。不要通过 HTTP 请求 19091/19082 判断服务是否启动；使用 gRPC 探针、启动日志或集成测试。
+当前 Java 业务服务没有 HTTP Actuator 端口。不要通过 HTTP 请求 19091/19082 判断服务是否启动；使用 gRPC 探针、启动日志或集成测试。
+
+## Go 网关开发
+
+网关使用独立 Go Modules，与 Maven 分开构建和测试。进入 `gateway/` 后执行 `go test ./...`、`go vet ./...`，需要并发检测时执行 `CGO_ENABLED=1 go test -race ./...`（需要 C 编译器）。
+
+新增 Java RPC 后，通过路由发布和反射或描述文件加载完成接入；只修改路由无需重编译 Go。进程级联调及配置字段见[网关指南](../gateway/README.md)。网关的 `/readyz` 返回生效 revision；无效更新在日志记录 `route update rejected` 并保留旧配置。

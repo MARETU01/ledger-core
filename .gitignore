@@ -3,6 +3,10 @@
 .vscode/
 *.iml
 *.log
+/gateway/bin/
+/gateway/coverage.out
+/gateway/config/*.local.yml
+/gateway/descriptors/*.pb
 .env
 .env.*
 !.env.example

@@ -97,3 +97,7 @@ docker compose down
 这些命令只操作项目名为 `ledger-core` 的 Compose 资源。PostgreSQL 使用命名卷，普通 `down` 保留数据；Redis 和 Kafka 没有配置业务数据持久卷。修改 `.env` 中的 PostgreSQL 密码不会自动修改已初始化数据库卷内的用户密码，应与已有数据库凭据保持一致。
 
 当前 Kafka advertised address 固定为 `localhost:19092`，用于宿主机上的 Java 服务；将 Java 服务容器化时还需单独设计内外部监听地址。
+
+## Go 动态网关
+
+`.env.example` 还提供 `GATEWAY_*` 可选项。Java 启动命令忽略这些变量；从 `gateway/` 目录启动 Go 进程时，使用相同的 Nacos 地址、namespace、group 和凭据。网关独立监听 HTTP 8080，不改变 Java gRPC 端口。路由、TLS、静态地址及热更新说明见[网关指南](../gateway/README.md)。

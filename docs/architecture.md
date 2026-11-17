@@ -11,7 +11,7 @@
 | `account-service` | 账户服务启动入口和诊断接口 | contracts、platform |
 | `trading-service` | 交易服务启动入口，演示调用账户服务 | contracts、platform |
 | `ledger-integration-tests` | 同时装载服务并验证框架和真实中间件 | 两个服务的普通 JAR、测试库 |
-| `gateway` | 目录占位 | 无，不参与 Maven 构建 |
+| `gateway` | Go 动态 HTTP → gRPC 转换、Nacos 发现、路由热更新 | 独立 Go Modules，不参与 Maven 构建 |
 
 服务构建时保留普通 JAR，并生成带 `exec` classifier 的可执行 JAR。前者供集成测试引用，运行服务使用 `*-exec.jar`。
 
@@ -33,7 +33,7 @@ sequenceDiagram
     T-->>C: service、request_id、downstream_service
 ```
 
-两个服务都使用 `web-application-type: none`。`GrpcDiscoveryConfiguration` 监听 gRPC 启动事件，取得实际监听端口后触发 Nacos 注册，不依赖 HTTP WebServer 启动事件。平台引入 `spring-boot-web-server` 是为了提供 Spring Cloud 注册基类引用的事件类型，不会因此启动 HTTP 服务器。
+Java 侧两个服务都使用 `web-application-type: none`。`GrpcDiscoveryConfiguration` 监听 gRPC 启动事件，取得实际监听端口后触发 Nacos 注册，不依赖 HTTP WebServer 启动事件。平台引入 `spring-boot-web-server` 是为了提供 Spring Cloud 注册基类引用的事件类型，不会因此启动 HTTP 服务器。
 
 `DiscoveryGrpcChannels` 每次选择实例时过滤 `protocol=grpc` 元数据，按轮询选择实例，并按地址复用 ManagedChannel。当前不实现自动重试、熔断或失效地址连接的主动淘汰；缓存连接在应用关闭时释放。
 
@@ -58,4 +58,10 @@ com.ledger.account 或 com.ledger.trading
 
 已具备基础构建、服务启动、配置中心、服务发现、诊断 RPC、数据库迁移、MyBatis-Plus CRUD/分页/乐观锁能力，以及 Redis/Kafka 客户端配置。
 
-目前没有业务表、资金账务、委托状态机、业务消息 topic 或监听器，也没有业务缓存。诊断 `request_id` 只做透传，不是幂等键或完整链路追踪。网关、鉴权、服务间 TLS、资金一致性和业务幂等需要在后续用例中实现。
+目前没有业务表、资金账务、委托状态机、业务消息 topic 或监听器，也没有业务缓存。诊断 `request_id` 只做透传，不是幂等键或完整链路追踪。Go 网关已支持动态 unary 调用、文件/Nacos 配置热更新和可选上游 TLS，详见[网关指南](../gateway/README.md)。完整用户鉴权、资金一致性和业务幂等仍需随业务实现。
+
+## 动态网关的数据流
+
+HTTP 请求按已发布路由解析，使用缓存的方法描述构造 dynamicpb 消息，通过复用的 gRPC 连接调用 Java。反射描述只在路由加载阶段读取；Nacos 实例变更独立更新 resolver，不要求重新发布路由。描述文件也可替代反射。
+
+新路由在独立快照中校验，旧请求完成后整体切换并释放旧连接。无效更新保留旧版本。路由配置只允许已声明的服务和方法，外部请求不能自由指定上游地址或方法。当前只支持 unary RPC，不支持流式转换。

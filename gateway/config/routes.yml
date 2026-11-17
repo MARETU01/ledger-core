@@ -1,0 +1,25 @@
+version: 1
+revision: bootstrap-1
+routes:
+  - id: account-probe-get
+    http_method: GET
+    http_path: /api/v1/probes/account
+    target_service: account-service
+    grpc_method: /ledger.platform.v1.AccountProbe/Check
+    timeout: 2s
+    query_fields:
+      requestId: request_id
+  - id: account-probe-post
+    http_method: POST
+    http_path: /api/v1/probes/account
+    target_service: account-service
+    grpc_method: /ledger.platform.v1.AccountProbe/Check
+    timeout: 2s
+  - id: trading-probe-get
+    http_method: GET
+    http_path: /api/v1/probes/trading
+    target_service: trading-service
+    grpc_method: /ledger.platform.v1.TradingProbe/Check
+    timeout: 3s
+    query_fields:
+      requestId: request_id
