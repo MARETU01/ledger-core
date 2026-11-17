@@ -1,0 +1,25 @@
+# 网关启动配置；相对路径以本文件所在目录为基准。修改后重启网关。
+listen_addr: 127.0.0.1:8080
+routes_source: file # file 或 nacos；路由规则支持热更新
+routes_file: routes.yml
+nacos_data_id: gateway-routes.yml
+descriptor_dir: ..
+# 留空使用 Nacos；也可填写 service=host:port;service=host:port,host:port
+static_targets: ""
+api_token: ""
+# 留空使用系统用户缓存目录下的 ledger-core-gateway
+state_dir: ""
+grpc_tls:
+  enabled: false
+  ca_file: ""
+  server_name: ""
+nacos:
+  server_addr: localhost:18848
+  namespace: "" # namespace ID；空表示 public
+  group: LEDGER_GROUP
+  username: ""
+  password: ""
+  tls:
+    enabled: false
+    ca_file: ""
+    server_name: ""

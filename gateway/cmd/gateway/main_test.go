@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -14,21 +15,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MARETU01/ledger-core/gateway/internal/config"
 	"github.com/nacos-group/nacos-sdk-go/v2/clients"
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
+	"gopkg.in/yaml.v3"
 )
+
+var javaTest = flag.Bool("java-test", false, "run integration test against Java services and Nacos")
 
 // Opt-in process-level test against the real Java services and project Nacos.
 func TestJavaGatewayHotReload(t *testing.T) {
-	if os.Getenv("GATEWAY_JAVA_TEST") != "true" {
+	if !*javaTest {
 		t.Skip("requires Java account/trading services and Nacos; see gateway/README.md")
 	}
 	binary := filepath.Join(t.TempDir(), "gateway")
 	if output, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build gateway: %v: %s", err, output)
 	}
-	t.Setenv("GATEWAY_STATE_DIR", t.TempDir())
-	param, err := nacosParameters()
+	cfg, err := config.LoadRuntime("../../config/config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	param, err := nacosParameters(cfg.Nacos, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +50,7 @@ func TestJavaGatewayHotReload(t *testing.T) {
 			directory := t.TempDir()
 			routeFile := filepath.Join(directory, "routes.yml")
 			dataID := fmt.Sprintf("gateway-test-%d.yml", time.Now().UnixNano())
-			group := env("NACOS_GROUP", "LEDGER_GROUP")
+			group := cfg.Nacos.Group
 			publish := func(data string) {
 				t.Helper()
 				if mode == "nacos" {
@@ -80,12 +88,24 @@ func TestJavaGatewayHotReload(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer log.Close()
-			command := exec.Command(binary, "-listen", address, "-routes", routeFile)
 			source, static := "file", "account-service=127.0.0.1:19091;trading-service=127.0.0.1:19082"
 			if mode == "nacos" {
 				source, static = "nacos", ""
 			}
-			command.Env = append(os.Environ(), "GATEWAY_ROUTES_SOURCE="+source, "GATEWAY_NACOS_DATA_ID="+dataID, "GATEWAY_STATIC_TARGETS="+static, "GATEWAY_STATE_DIR="+filepath.Join(directory, "state"), "GATEWAY_API_TOKEN=")
+			runtimeConfig := *cfg
+			runtimeConfig.ListenAddr, runtimeConfig.RoutesFile = address, routeFile
+			runtimeConfig.RoutesSource, runtimeConfig.StaticTargets = source, static
+			runtimeConfig.NacosDataID, runtimeConfig.APIToken = dataID, ""
+			runtimeConfig.StateDir = filepath.Join(directory, "state")
+			settings, err := yaml.Marshal(runtimeConfig)
+			if err != nil {
+				t.Fatal(err)
+			}
+			configFile := filepath.Join(directory, "config.yaml")
+			if err := os.WriteFile(configFile, settings, 0600); err != nil {
+				t.Fatal(err)
+			}
+			command := exec.Command(binary, "-config", configFile)
 			command.Stdout, command.Stderr = log, log
 			if err := command.Start(); err != nil {
 				t.Fatal(err)

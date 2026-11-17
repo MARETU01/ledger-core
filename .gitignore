@@ -6,6 +6,7 @@
 /gateway/bin/
 /gateway/coverage.out
 /gateway/config/*.local.yml
+/gateway/config/*.local.yaml
 /gateway/descriptors/*.pb
 .env
 .env.*

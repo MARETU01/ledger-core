@@ -6,14 +6,18 @@
 
 | 文件或来源 | 作用 |
 | --- | --- |
-| [`.env.example`](../.env.example) | 本项目 Compose 的客户端连接模板 |
+| [`.env.example`](../.env.example) | Java 服务的中间件连接模板 |
 | 本机 `.env` | 个人连接配置，Git 忽略；Java 不会自动读取，需要导出环境变量 |
+| [gateway/config/config.yaml](../gateway/config/config.yaml) | Go 网关启动配置，包括监听、路由来源、Nacos、TLS 和访问 token |
+| [gateway/config/routes.yml](../gateway/config/routes.yml) | HTTP → gRPC 路由规则，支持热更新 |
 | [ledger-defaults.yml](../ledger-common/src/main/resources/ledger-defaults.yml) | 公共配置及环境变量占位符 |
 | 服务的 `application.yml` | 服务名、监听端口及 Nacos 导入 |
 | Nacos 的服务配置 | 按服务名导入的集中配置，可覆盖本地配置项 |
 | Java 启动命令的 `--属性=值` | 对当前进程进行临时覆盖 |
 
-`.env.example` 的端口对应项目内 Compose；公共 YAML 的默认端口是中间件标准端口。启动项目 Compose 后应先导入 `.env`，不能直接依赖 YAML 默认地址。环境变量通过 YAML 占位符提供值；如果 Nacos 同时提供同名完整属性，最终以 Spring 属性来源优先级为准，不能假设占位符一定覆盖远端配置。排查时可先移除重复配置，或用启动参数明确指定。
+Java 服务与 Go 网关使用独立的配置来源：Java 使用 `.env` 导出的环境变量及 Spring/Nacos 配置；Go 网关只读取指定的启动 YAML。修改 `.env` 不会影响网关，修改 `gateway/config/config.yaml` 也不会影响 Java 服务。
+
+`.env.example` 使用示例端口；公共 YAML 的默认值使用中间件标准端口。请按实际部署编辑 `.env`，再为 Java 服务导入环境变量。仓库不附带中间件 Compose 文件。环境变量通过 YAML 占位符提供值；如果 Nacos 同时提供同名完整属性，最终以 Spring 属性来源优先级为准，不能假设占位符一定覆盖远端配置。排查时可先移除重复配置，或用启动参数明确指定。
 
 ### Bash
 
@@ -42,7 +46,7 @@ foreach ($line in Get-Content -LiteralPath .env -Encoding utf8) {
 
 ## 环境变量
 
-| 变量 | 项目 Compose 示例 | 含义 |
+| 变量 | 模板示例 | 含义 |
 | --- | --- | --- |
 | `POSTGRES_URL` | `jdbc:postgresql://localhost:15432/ledger` | JDBC 地址 |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` | 见 `.env.example` | 数据库登录信息 |
@@ -85,11 +89,11 @@ spring:
       maximum-pool-size: 15
 ```
 
-发布配置后，重启相应服务验证。当前没有为业务 Bean 设计动态刷新机制，不保证所有配置都能即时生效。开发 Nacos 使用 tmpfs，容器停止后配置数据不保留。
+发布配置后，重启相应服务验证。当前没有为业务 Bean 设计动态刷新机制，不保证所有配置都能即时生效。配置数据的持久化由 Nacos 部署管理。
 
 ## 复用已有中间件
 
-填写本项目 `.env` 或应用启动参数，无需运行项目 Compose。按目标环境核对以下内容：
+为 Java 服务填写 `.env` 或应用启动参数，为 Go 网关填写 `gateway/config/config.yaml`。按目标环境核对以下内容：
 
 - PostgreSQL：填入已有实例的库、用户和密码。启动服务前按[数据库 SQL](../db/README.md)手动执行初始化或结构变更脚本；执行脚本的用户需要相应建 schema/表权限，应用用户需要对应的数据访问权限。
 - Nacos：如果目标环境启用了认证或 TLS，需匹配服务器地址、客户端认证和证书信任设置。仅填写用户名密码不等于已完成 TLS 接入；具体证书参数由部署环境提供，Go 网关配置见[网关指南](../gateway/README.md#配置项)。
@@ -106,18 +110,23 @@ KAFKA_SASL_JAAS_CONFIG='org.apache.kafka.common.security.plain.PlainLoginModule 
 
 ## 中间件生命周期
 
-```bash
-docker compose up -d --wait --wait-timeout 180
-docker compose ps
-docker compose logs --tail 100 nacos
-docker compose logs --tail 100 kafka
-docker compose down
-```
+中间件由各自部署环境启动、停止和维护。启动 Java 服务前，确认数据库及 Nacos 可访问，并按[数据库 SQL](../db/README.md)完成 schema 初始化。Kafka 和 Redis 的业务使用需对应服务可用。
 
-这些命令只操作项目名为 `ledger-core` 的 Compose 资源。PostgreSQL 使用命名卷，普通 `down` 保留数据；Redis 和 Kafka 没有配置业务数据持久卷。修改 `.env` 中的 PostgreSQL 密码不会自动修改已初始化数据库卷内的用户密码，应与已有数据库凭据保持一致。
-
-当前 Kafka advertised address 固定为 `localhost:19092`，用于宿主机上的 Java 服务；将 Java 服务容器化时还需单独设计内外部监听地址。
+修改 `.env` 中的 PostgreSQL 密码只改变客户端配置，不会修改数据库内的用户密码。数据库数据、Nacos 配置和消息的持久化策略由实际部署决定。Kafka advertised address 必须从运行 Java 服务的机器可达；容器部署时需核对内外部监听地址。
 
 ## Go 动态网关
 
-`.env.example` 还提供 `GATEWAY_*` 可选项。Java 启动命令忽略这些变量；从 `gateway/` 目录启动 Go 进程时，使用相同的 Nacos 地址、namespace、group 和凭据。网关独立监听 HTTP 8080，不改变 Java gRPC 端口。路由、TLS、静态地址及热更新说明见[网关指南](../gateway/README.md)。
+Go 网关独立读取 [gateway/config/config.yaml](../gateway/config/config.yaml)，无需导入 `.env`，也不读取环境变量。按 Java 服务使用的 Nacos 地址、namespace、group 和凭据填写其中的 `nacos` 配置。从 `gateway/` 运行 `go run ./cmd/gateway`，或用 `-config` 指定配置文件；相对路径以配置文件所在目录为基准。网关独立监听 HTTP 8080，不改变 Java gRPC 端口。路由、TLS、静态地址及热更新说明见[网关指南](../gateway/README.md)。
+
+例如 Java 的 `.env` 使用 `NACOS_SERVER_ADDR=localhost:18848` 和 `NACOS_GROUP=LEDGER_GROUP`，网关需单独填写：
+
+```yaml
+nacos:
+  server_addr: localhost:18848
+  namespace: ""
+  group: LEDGER_GROUP
+  username: ""
+  password: ""
+```
+
+从旧环境变量配置迁移时，将 `GATEWAY_*` 值转填到网关 YAML；Nacos 地址和凭据也填入 `nacos` 节点。个人 `.env` 中原有的 `GATEWAY_*` 可以删除，Java 使用的 `NACOS_*` 仍需保留。网关不会展开 YAML 字符串中的 `${变量名}`。

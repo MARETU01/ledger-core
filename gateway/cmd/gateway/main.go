@@ -35,13 +35,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func env(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
-}
-
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -53,16 +46,13 @@ func main() {
 }
 
 func run(parent context.Context) error {
-	address := flag.String("listen", env("GATEWAY_LISTEN_ADDR", "127.0.0.1:8080"), "HTTP listen address")
-	routeFile := flag.String("routes", env("GATEWAY_ROUTES_FILE", "config/routes.yml"), "local routing YAML file")
-	routeSource := flag.String("routes-source", env("GATEWAY_ROUTES_SOURCE", "file"), "file or nacos")
-	staticTargets := flag.String("static-targets", os.Getenv("GATEWAY_STATIC_TARGETS"), "service=host:port;service=host:port (empty uses Nacos)")
-	descriptorDir := flag.String("descriptor-dir", env("GATEWAY_DESCRIPTOR_DIR", "."), "base directory for descriptor_set files")
+	configFile := flag.String("config", "config/config.yaml", "gateway startup YAML file")
 	flag.Parse()
-	if *routeSource != "file" && *routeSource != "nacos" {
-		return fmt.Errorf("routes-source must be file or nacos")
+	cfg, err := config.LoadRuntime(*configFile)
+	if err != nil {
+		return err
 	}
-	creds, err := grpcCredentials()
+	creds, err := grpcCredentials(cfg.GRPCTLS)
 	if err != nil {
 		return err
 	}
@@ -70,19 +60,19 @@ func run(parent context.Context) error {
 	defer cancel()
 	var naming naming_client.INamingClient
 	var remote config_client.IConfigClient
-	if *staticTargets == "" || *routeSource == "nacos" {
-		param, err := nacosParameters()
+	if cfg.StaticTargets == "" || cfg.RoutesSource == "nacos" {
+		param, err := nacosParameters(cfg.Nacos, cfg.StateDir)
 		if err != nil {
 			return err
 		}
-		if *staticTargets == "" {
+		if cfg.StaticTargets == "" {
 			naming, err = clients.NewNamingClient(param)
 			if err != nil {
 				return err
 			}
 			defer naming.CloseClient()
 		}
-		if *routeSource == "nacos" {
+		if cfg.RoutesSource == "nacos" {
 			remote, err = clients.NewConfigClient(param)
 			if err != nil {
 				return err
@@ -91,15 +81,15 @@ func run(parent context.Context) error {
 		}
 	}
 	var source discovery.Source
-	if *staticTargets != "" {
-		source, err = discovery.ParseStatic(*staticTargets)
+	if cfg.StaticTargets != "" {
+		source, err = discovery.ParseStatic(cfg.StaticTargets)
 		if err != nil {
 			return err
 		}
 	} else {
-		source = discovery.Nacos{Client: naming, Group: env("NACOS_GROUP", "LEDGER_GROUP")}
+		source = discovery.Nacos{Client: naming, Group: cfg.Nacos.Group}
 	}
-	engine := gateway.New(source, creds, *descriptorDir)
+	engine := gateway.New(source, creds, cfg.DescriptorDir)
 	defer engine.Close()
 	updates := make(chan struct{}, 1)
 	notify := func() {
@@ -111,7 +101,7 @@ func run(parent context.Context) error {
 	var load func() ([]byte, error)
 	var workers sync.WaitGroup
 	if remote != nil {
-		param := vo.ConfigParam{DataId: env("GATEWAY_NACOS_DATA_ID", "gateway-routes.yml"), Group: env("NACOS_GROUP", "LEDGER_GROUP")}
+		param := vo.ConfigParam{DataId: cfg.NacosDataID, Group: cfg.Nacos.Group}
 		load = func() ([]byte, error) { data, err := remote.GetConfig(param); return []byte(data), err }
 		param.OnChange = func(_, _, _, _ string) { notify() }
 		if err := remote.ListenConfig(param); err != nil {
@@ -119,7 +109,7 @@ func run(parent context.Context) error {
 		}
 		defer remote.CancelListenConfig(param)
 	} else {
-		load = func() ([]byte, error) { return readRoutes(*routeFile) }
+		load = func() ([]byte, error) { return readRoutes(cfg.RoutesFile) }
 	}
 	data, err := load()
 	if err != nil {
@@ -188,13 +178,13 @@ func run(parent context.Context) error {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ready": ready, "revision": revision})
 	})
-	mux.Handle("/", gateway.Middleware(engine, os.Getenv("GATEWAY_API_TOKEN")))
-	server := &http.Server{Addr: *address, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
-	listener, err := net.Listen("tcp", *address)
+	mux.Handle("/", gateway.Middleware(engine, cfg.APIToken))
+	server := &http.Server{Addr: cfg.ListenAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
 		return err
 	}
-	slog.Info("gateway listening", "address", listener.Addr().String(), "routes_source", *routeSource)
+	slog.Info("gateway listening", "address", listener.Addr().String(), "routes_source", cfg.RoutesSource)
 	failed := make(chan error, 1)
 	go func() { failed <- server.Serve(listener) }()
 	select {
@@ -226,14 +216,10 @@ func readRoutes(filename string) ([]byte, error) {
 	return data, err
 }
 
-func grpcCredentials() (credentials.TransportCredentials, error) {
-	enabled, err := strconv.ParseBool(env("GATEWAY_GRPC_TLS", "false"))
-	if err != nil {
-		return nil, err
-	}
-	if !enabled {
-		if os.Getenv("GATEWAY_GRPC_CA_FILE") != "" {
-			return nil, fmt.Errorf("GATEWAY_GRPC_CA_FILE requires GATEWAY_GRPC_TLS=true")
+func grpcCredentials(cfg config.TLS) (credentials.TransportCredentials, error) {
+	if !cfg.Enabled {
+		if cfg.CAFile != "" {
+			return nil, fmt.Errorf("grpc_tls.ca_file requires grpc_tls.enabled: true")
 		}
 		return insecure.NewCredentials(), nil
 	}
@@ -241,7 +227,7 @@ func grpcCredentials() (credentials.TransportCredentials, error) {
 	if err != nil {
 		roots = x509.NewCertPool()
 	}
-	if filename := os.Getenv("GATEWAY_GRPC_CA_FILE"); filename != "" {
+	if filename := cfg.CAFile; filename != "" {
 		data, err := os.ReadFile(filename)
 		if err != nil {
 			return nil, err
@@ -250,12 +236,12 @@ func grpcCredentials() (credentials.TransportCredentials, error) {
 			return nil, fmt.Errorf("no CA certificates in %s", filename)
 		}
 	}
-	return credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: os.Getenv("GATEWAY_GRPC_SERVER_NAME")}), nil
+	return credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: cfg.ServerName}), nil
 }
 
-func nacosParameters() (vo.NacosClientParam, error) {
+func nacosParameters(cfg config.Nacos, state string) (vo.NacosClientParam, error) {
 	servers := []constant.ServerConfig{}
-	for raw := range strings.SplitSeq(env("NACOS_SERVER_ADDR", "localhost:18848"), ",") {
+	for raw := range strings.SplitSeq(cfg.ServerAddr, ",") {
 		if !strings.Contains(raw, "://") {
 			raw = "http://" + raw
 		}
@@ -275,22 +261,20 @@ func nacosParameters() (vo.NacosClientParam, error) {
 		}
 		servers = append(servers, constant.ServerConfig{Scheme: u.Scheme, IpAddr: u.Hostname(), Port: port, ContextPath: "/nacos"})
 	}
-	cache, err := os.UserCacheDir()
-	if err != nil {
-		return vo.NacosClientParam{}, err
+	if state == "" {
+		cache, err := os.UserCacheDir()
+		if err != nil {
+			return vo.NacosClientParam{}, err
+		}
+		state = filepath.Join(cache, "ledger-core-gateway")
 	}
-	state := env("GATEWAY_STATE_DIR", filepath.Join(cache, "ledger-core-gateway"))
 	if err := os.MkdirAll(state, 0700); err != nil {
 		return vo.NacosClientParam{}, err
 	}
-	tlsEnabled, err := strconv.ParseBool(env("NACOS_TLS_ENABLED", "false"))
-	if err != nil {
-		return vo.NacosClientParam{}, err
-	}
 	return vo.NacosClientParam{ServerConfigs: servers, ClientConfig: &constant.ClientConfig{
-		NamespaceId: os.Getenv("NACOS_NAMESPACE"), Username: os.Getenv("NACOS_USERNAME"), Password: os.Getenv("NACOS_PASSWORD"),
+		NamespaceId: cfg.Namespace, Username: cfg.Username, Password: cfg.Password,
 		TimeoutMs: 5000, NotLoadCacheAtStart: true, DisableUseSnapShot: true, UpdateCacheWhenEmpty: true,
 		AppName: "ledger-gateway", LogLevel: "warn", CacheDir: filepath.Join(state, "cache"), LogDir: filepath.Join(state, "logs"),
-		TLSCfg: constant.TLSConfig{Appointed: true, Enable: tlsEnabled, TrustAll: false, CaFile: os.Getenv("NACOS_CA_FILE"), ServerNameOverride: os.Getenv("NACOS_SERVER_NAME")},
+		TLSCfg: constant.TLSConfig{Appointed: true, Enable: cfg.TLS.Enabled, TrustAll: false, CaFile: cfg.TLS.CAFile, ServerNameOverride: cfg.TLS.ServerName},
 	}}, nil
 }

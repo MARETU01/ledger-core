@@ -8,12 +8,9 @@
 
 ## 启动与验证
 
-先按[项目首页](../README.md)启动中间件、账户服务和交易服务。新开 Bash 终端，在项目根目录导出环境变量，再进入 Go 模块：
+先按[项目首页](../README.md)启动中间件、账户服务和交易服务。网关使用 [config/config.yaml](config/config.yaml)，无需导入 `.env`。从项目根目录进入 Go 模块：
 
 ```bash
-set -a
-source .env
-set +a
 cd gateway
 go test ./...
 go run ./cmd/gateway
@@ -21,7 +18,7 @@ go run ./cmd/gateway
 
 默认监听 `127.0.0.1:8080`，通过 Nacos 发现上游，每秒检查 `config/routes.yml`。初始配置无效或反射加载失败时退出，因此应先启动后端服务。
 
-PowerShell 用户先在项目根目录按[配置指南](../docs/configuration.md#powershell)导入 `.env`，再执行 `Set-Location gateway` 和 `go run ./cmd/gateway`。在另一个终端验证 HTTP：
+PowerShell 用户在项目根目录执行 `Set-Location gateway` 和 `go run ./cmd/gateway`。在另一个终端验证 HTTP：
 
 ```powershell
 Invoke-RestMethod 'http://localhost:8080/healthz'
@@ -48,6 +45,26 @@ go build -o bin/gateway ./cmd/gateway
 ```
 
 `bin/` 已被 Git 忽略。Ctrl+C/SIGTERM 会停止接入、等待正在执行的请求并关闭连接和配置监听。
+
+### 使用个人配置
+
+在 `gateway/` 目录复制启动配置，再按环境修改：
+
+```bash
+cp -n config/config.yaml config/config.local.yaml
+go run ./cmd/gateway -config config/config.local.yaml
+```
+
+PowerShell 对应命令：
+
+```powershell
+if (!(Test-Path -LiteralPath config/config.local.yaml)) {
+    Copy-Item -LiteralPath config/config.yaml -Destination config/config.local.yaml
+}
+go run ./cmd/gateway -config config/config.local.yaml
+```
+
+`config/config.local.yaml` 已被 Git 忽略。配置文件必须存在，只接受一个 YAML 文档，大小不超过 1 MiB；省略的字段使用内置默认值。完整字段见 [config/config.yaml](config/config.yaml) 和下方“配置项”。从其他目录运行已构建的网关时，通过 `-config` 指定启动配置的路径。
 
 ## 路由格式
 
@@ -77,7 +94,7 @@ routes:
 | `target_service` | Nacos 服务名或静态服务别名 |
 | `grpc_method` | `/完整协议包.服务/方法`，只接受 unary RPC |
 | `timeout` | 默认 2s，必须大于 0 且不超过 30s |
-| `descriptor_set` | 可选描述文件；相对 `GATEWAY_DESCRIPTOR_DIR` 解析，留空使用反射 |
+| `descriptor_set` | 可选描述文件；相对 `descriptor_dir` 解析，留空使用反射 |
 | `path_fields` | 路径参数 → 请求字段，每个占位符都必须声明 |
 | `query_fields` | Query 参数 → 请求字段 |
 
@@ -102,20 +119,22 @@ routes:
 
 ```bash
 cp config/routes.yml config/routes.local.yml
-go run ./cmd/gateway -routes config/routes.local.yml
 ```
 
-编辑并保存所选文件即可更新。启动时文件必须有效，运行时文件暂时丢失则保留旧配置。
+在 `config/config.yaml` 中设置 `routes_file: routes.local.yml`，再运行 `go run ./cmd/gateway`。编辑并保存所选路由文件即可更新。启动时文件必须有效，运行时文件暂时丢失则保留旧配置。
 
 ### Nacos 配置中心
 
-在 Nacos 中创建 YAML 配置，以默认路由文件作为初始内容：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 public。通过环境变量可覆盖这些值。
+在 Nacos 中创建 YAML 配置，以默认路由文件作为初始内容：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 public。通过 `config/config.yaml` 的 `nacos_data_id`、`nacos.group`、`nacos.namespace` 修改这些值。
 
-```bash
-GATEWAY_ROUTES_SOURCE=nacos go run ./cmd/gateway
+```yaml
+# config/config.yaml
+routes_source: nacos
 ```
 
-此模式不回退读取本地路由文件。收到变更通知后重新读取最新配置，避免直接应用排队的过时通知。服务发现与配置中心共用 Nacos namespace/group。开发 Nacos 使用 tmpfs，停止后需要重新发布配置。
+保存后运行 `go run ./cmd/gateway`。
+
+此模式不回退读取本地路由文件。收到变更通知后重新读取最新配置，避免直接应用排队的过时通知。服务发现与配置中心共用 Nacos namespace/group。配置数据是否在 Nacos 重启后保留取决于 Nacos 部署的持久化设置。
 
 ## 协议来源
 
@@ -131,7 +150,7 @@ protoc -I ledger-pb/src/main/proto \
   ledger/platform/v1/probe.proto
 ```
 
-随后设置 `descriptor_set: descriptors/platform.pb`，从 `gateway/` 启动时描述根目录默认为 `.`。生成物已被忽略，应与协议版本一起分发。文件必须包含所有依赖；Any 自定义消息也需包含在装载的描述集合中。描述上限为 8 MiB，反射最多加载 256 个文件。
+随后设置 `descriptor_set: descriptors/platform.pb`。启动配置中的 `descriptor_dir` 默认为 `..`，相对于该启动配置所在目录，默认解析到 `gateway/`；路由的 `descriptor_set` 再相对于 `descriptor_dir` 解析，与路由文件所在目录无关。生成物已被忽略，应与协议版本一起分发。文件必须包含所有依赖；Any 自定义消息也需包含在装载的描述集合中。描述上限为 8 MiB，反射最多加载 256 个文件。
 
 本地描述有效不代表所有上游都实现了方法。滚动发布时，先确保目标实例支持新方法，或通过不同的 Nacos 服务名隔离版本，再发布路由；网关不自行推断实例协议版本。
 
@@ -141,34 +160,56 @@ protoc -I ledger-pb/src/main/proto \
 
 也可以使用静态地址：
 
-```bash
-go run ./cmd/gateway \
-  -static-targets 'account-service=127.0.0.1:8081;trading-service=127.0.0.1:8082'
+```yaml
+# config/config.yaml
+static_targets: 'account-service=127.0.0.1:8081;trading-service=127.0.0.1:8082'
 ```
 
 同一服务的地址用逗号分隔，不同服务用分号。静态模式只替代网关发现，交易服务自身访问账户服务仍使用 Java 侧配置。
 
 ## 配置项
 
-启动参数 `-listen`、`-routes`、`-routes-source`、`-static-targets`、`-descriptor-dir` 优先于对应环境变量；`go run ./cmd/gateway -help` 查看参数。
+默认读取当前工作目录下的 `config/config.yaml`；可用 `go run ./cmd/gateway -config /path/to/config.yaml` 指定其他文件。网关不再读取环境变量，也不再提供逐项覆盖的启动参数。未知字段、错误类型或无效配置会阻止启动。
 
-| 环境变量 | 默认值或作用 |
+配置中的相对文件/目录路径均以 `config/config.yaml` 所在目录为基准。启动配置修改后需要重启；`routes_file` 或 Nacos 中的路由规则仍支持热更新。真实密码和 token 请放在单独的本地配置中，例如已被 Git 忽略的 `config/config.local.yaml`，通过 `-config config/config.local.yaml` 使用。
+
+| YAML 字段 | 默认值或作用 |
 | --- | --- |
-| `GATEWAY_LISTEN_ADDR` | `127.0.0.1:8080` |
-| `GATEWAY_ROUTES_SOURCE` / `GATEWAY_ROUTES_FILE` | `file` / `config/routes.yml` |
-| `GATEWAY_NACOS_DATA_ID` | `gateway-routes.yml` |
-| `GATEWAY_DESCRIPTOR_DIR` | `.`，描述文件的相对路径基准 |
-| `GATEWAY_STATIC_TARGETS` | 空时使用 Nacos |
-| `GATEWAY_API_TOKEN` | 可选固定 Bearer token，默认关闭 |
-| `GATEWAY_STATE_DIR` | 默认用户缓存目录下的 ledger-core-gateway，存放 SDK 缓存与日志 |
-| `GATEWAY_GRPC_TLS` | 默认 false；true 时启用上游证书验证 |
-| `GATEWAY_GRPC_CA_FILE` / `GATEWAY_GRPC_SERVER_NAME` | 可选上游 CA 和证书名称，需要启用 gRPC TLS |
-| `NACOS_SERVER_ADDR` | 默认 localhost:18848，支持逗号分隔的多个地址及 http/https scheme |
-| `NACOS_NAMESPACE` / `NACOS_GROUP` | 默认 public / LEDGER_GROUP |
-| `NACOS_USERNAME` / `NACOS_PASSWORD` | 已有部署的认证信息 |
-| `NACOS_TLS_ENABLED` / `NACOS_CA_FILE` / `NACOS_SERVER_NAME` | Nacos SDK TLS 开关、CA 和证书名称，默认关闭 TLS |
+| `listen_addr` | `127.0.0.1:8080` |
+| `routes_source` / `routes_file` | `file` / `routes.yml`，默认解析到 `gateway/config/routes.yml` |
+| `nacos_data_id` | `gateway-routes.yml` |
+| `descriptor_dir` | `..`，默认解析到 `gateway/`，作为描述文件的相对路径基准 |
+| `static_targets` | 空时使用 Nacos |
+| `api_token` | 可选固定 Bearer token，默认关闭 |
+| `state_dir` | 默认用户缓存目录下的 ledger-core-gateway，存放 SDK 缓存与日志 |
+| `grpc_tls.enabled` | 默认 false；true 时启用上游证书验证 |
+| `grpc_tls.ca_file` / `grpc_tls.server_name` | 可选上游 CA 和证书名称，CA 需要启用 gRPC TLS |
+| `nacos.server_addr` | 默认 localhost:18848，支持逗号分隔的多个地址及 http/https scheme |
+| `nacos.namespace` / `nacos.group` | 默认 public / LEDGER_GROUP |
+| `nacos.username` / `nacos.password` | 已有部署的认证信息 |
+| `nacos.tls.enabled` / `nacos.tls.ca_file` / `nacos.tls.server_name` | Nacos SDK TLS 开关、CA 和证书名称，默认关闭 TLS |
+
+`routes_file`、`descriptor_dir`、非空 `state_dir` 以及两个 TLS 节点的 `ca_file` 都按启动配置所在目录解析。`nacos.namespace` 填命名空间 ID，空字符串表示 public。`api_token` 非空时，业务请求需携带 `Authorization: Bearer <token>`；`/healthz` 和 `/readyz` 不校验该 token。
 
 HTTP 入口当前为明文开发监听，对外 HTTPS 由部署入口处理。上游 gRPC TLS 与 Nacos TLS 独立配置。目前没有 JWT、角色授权、mTLS、CORS 策略、限流或熔断。
+
+### 从环境变量迁移
+
+将原配置值填入 YAML 后重启网关。旧的 `-listen`、`-routes`、`-routes-source`、`-static-targets` 和 `-descriptor-dir` 参数已移除，统一使用 `-config` 选择文件。
+
+| 原环境变量 | YAML 字段 |
+| --- | --- |
+| `GATEWAY_LISTEN_ADDR` | `listen_addr` |
+| `GATEWAY_ROUTES_SOURCE` / `GATEWAY_ROUTES_FILE` | `routes_source` / `routes_file` |
+| `GATEWAY_NACOS_DATA_ID` | `nacos_data_id` |
+| `GATEWAY_DESCRIPTOR_DIR` / `GATEWAY_STATIC_TARGETS` | `descriptor_dir` / `static_targets` |
+| `GATEWAY_API_TOKEN` / `GATEWAY_STATE_DIR` | `api_token` / `state_dir` |
+| `GATEWAY_GRPC_TLS` / `GATEWAY_GRPC_CA_FILE` / `GATEWAY_GRPC_SERVER_NAME` | `grpc_tls.enabled` / `grpc_tls.ca_file` / `grpc_tls.server_name` |
+| `NACOS_SERVER_ADDR` / `NACOS_NAMESPACE` / `NACOS_GROUP` | `nacos.server_addr` / `nacos.namespace` / `nacos.group` |
+| `NACOS_USERNAME` / `NACOS_PASSWORD` | `nacos.username` / `nacos.password` |
+| `NACOS_TLS_ENABLED` / `NACOS_CA_FILE` / `NACOS_SERVER_NAME` | `nacos.tls.enabled` / `nacos.tls.ca_file` / `nacos.tls.server_name` |
+
+Java 服务仍使用 `.env` 中的 `NACOS_*`，需要与网关 YAML 保持一致。YAML 中的 `${变量名}` 不会展开为环境变量。
 
 ## 错误与上下文
 
@@ -199,7 +240,7 @@ go vet ./...
 CGO_ENABLED=1 go test -race ./...
 ```
 
-默认不需要 Docker，测试后端也在运行时构造协议，不依赖业务 stub。覆盖反射依赖、描述文件、动态方法、参数类型、body 限制、超时/错误、身份头过滤、路由切换、实例移除及恢复。
+默认测试不需要中间件，测试后端在运行时构造协议，不依赖业务 stub。覆盖启动配置的默认值、相对路径、错误配置、TLS/Nacos 参数，以及反射依赖、描述文件、动态方法、参数类型、body 限制、超时/错误、身份头过滤、路由切换、实例移除及恢复。
 
 进程级联调当前使用 Unix SIGTERM 关闭临时网关，建议在 Linux/WSL 中运行。测试的静态发现分支仍固定访问账户 `19091`、交易 `19082`，因此需要在两个已导入 `.env` 的终端中分别覆盖 Java 端口：
 
@@ -211,11 +252,11 @@ GRPC_PORT=19091 java -jar account-service/target/account-service-0.1.0-SNAPSHOT-
 GRPC_PORT=19082 java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar
 ```
 
-项目 Nacos 和上述服务启动后，在第三个已导入 `.env` 的终端进入 `gateway/` 执行：
+项目 Nacos 和上述服务启动后，核对 `gateway/config/config.yaml` 中的 Nacos 配置，在第三个终端进入 `gateway/` 执行：
 
 ```bash
-GATEWAY_JAVA_TEST=true go test -v ./cmd/gateway \
-  -run TestJavaGatewayHotReload -count=1 -timeout=180s
+go test -v ./cmd/gateway \
+  -run TestJavaGatewayHotReload -count=1 -timeout=180s -args -java-test
 ```
 
 测试启动临时网关，分别验证文件/静态地址和 Nacos 配置/发现模式，动态切换到另一项 Java RPC，发布无效方法后确认旧路由可用。测试创建并删除随机 Data ID，结束时关闭临时网关；Java 服务与中间件由启动者管理。

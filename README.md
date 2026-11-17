@@ -25,12 +25,8 @@
 | Spring gRPC | 1.1.2，由 Spring Boot 管理 |
 | Go（网关） | 1.27.4 |
 | MyBatis-Plus | 3.5.18，Spring Boot 4 starter |
-| PostgreSQL | 18.7 |
-| Nacos | 3.3.0 |
-| Kafka | 4.4.0 |
-| Redis | 8.10.3 |
 
-Java 依赖版本以根 [pom.xml](pom.xml) 及其 BOM 为准，Go 版本以 [gateway/go.mod](gateway/go.mod) 为准，中间件镜像版本以 [compose.yml](compose.yml) 为准。
+Java 依赖版本以根 [pom.xml](pom.xml) 及其 BOM 为准，Go 版本以 [gateway/go.mod](gateway/go.mod) 为准。PostgreSQL、Nacos、Kafka 和 Redis 由运行环境提供，仓库不再附带中间件 Compose 文件。
 
 ## 工程结构
 
@@ -40,8 +36,10 @@ ledger-common/             # 公共配置、Nacos gRPC 注册和发现客户端
 account-service/           # 账户服务，gRPC 8081，独立 account schema
 trading-service/           # 交易服务，gRPC 8082，独立 trading schema
 gateway/                   # Go 动态网关，独立 Go Modules 构建
+  config/config.yaml       # 网关启动配置：监听、Nacos、TLS、token 等
+  config/routes.yml        # HTTP → gRPC 路由规则，支持热更新
 db/                        # 按服务划分的 SQL，部署前手动执行
-compose.yml                # 本项目独立的开发中间件
+.env.example               # Java 服务的环境变量模板
 ```
 
 服务通过 `interfaces.grpc → application → domain` 组织业务，基础设施实现放在 `infrastructure`。当前只有诊断接口及必要配置，业务分层随实际用例添加。禁止跨服务直接访问对方 schema。
@@ -50,7 +48,7 @@ compose.yml                # 本项目独立的开发中间件
 
 ## 本地启动
 
-需要 JDK 25、本地 Maven 3.9+ 和 Docker Compose；Go 网关可选。以下命令从项目根目录运行，首次构建需要下载依赖。Java 服务在宿主机启动，Compose 只启动中间件。
+需要 JDK 25、本地 Maven 3.9+，以及可访问的 PostgreSQL、Nacos、Kafka 和 Redis；Go 网关可选。先准备中间件，再将 `.env.example` 复制为 `.env` 并填写实际连接信息。以下命令从项目根目录运行，首次构建需要下载依赖。
 
 启动服务前需完成数据库初始化：按[数据库 SQL 说明](db/README.md)执行 `db/account/001_create_schema.sql` 和 `db/trading/001_create_schema.sql`。后续表结构变更也需手动执行对应 SQL，服务启动时不自动初始化数据库。
 
@@ -59,9 +57,8 @@ compose.yml                # 本项目独立的开发中间件
 ```bash
 # 已有 .env 时保留自己的配置。
 test -f .env || cp .env.example .env
-docker compose up -d --wait --wait-timeout 180
 
-# Docker Compose 自动读取 .env；Java 进程需要显式导入环境变量。
+# 首次使用时先编辑 .env；Java 进程需要显式导入环境变量。
 set -a
 source .env
 set +a
@@ -84,8 +81,8 @@ java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar
 
 ```powershell
 if (!(Test-Path -LiteralPath .env)) { Copy-Item -LiteralPath .env.example -Destination .env }
-docker compose up -d --wait --wait-timeout 180
 
+# 首次使用时先编辑 .env，再导入环境变量。
 foreach ($line in Get-Content -LiteralPath .env -Encoding utf8) {
     if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
         $value = $Matches[2].Trim().Trim([char[]]@(34, 39))
@@ -112,15 +109,14 @@ java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
 
 Java 服务使用 `web-application-type: none`，不启动 HTTP 服务、不提供 REST 接口。gRPC 服务启动后将实际监听端口注册到 Nacos，元数据为 `protocol=grpc`；关闭应用时由 Nacos 自动注册组件注销实例。
 
-| 中间件 | 本项目地址 |
+| 中间件 | `.env.example` 中的示例地址 |
 | --- | --- |
 | PostgreSQL | `localhost:15432/ledger` |
 | Redis | `localhost:16379` |
 | Kafka | `localhost:19092` |
-| Nacos API / 客户端 gRPC | `localhost:18848` / `localhost:19848` |
-| Nacos 控制台 | `http://localhost:18888` |
+| Nacos API | `localhost:18848` |
 
-开发 Compose 绑定本机回环地址，Kafka advertised address 面向在宿主机运行的 Java 服务。PostgreSQL 使用独立命名卷；`docker compose down` 停止本项目中间件并保留数据库数据。开发 Nacos 使用内置 Derby 和 tmpfs，停止容器后其数据不会保留。
+这些地址是模板示例，不会自动创建对应服务。Nacos 的客户端 gRPC 和控制台端口、Kafka advertised address、认证及数据持久化由实际部署决定；客户端需要能够访问相关地址。
 
 ## gRPC 验证
 
@@ -150,7 +146,16 @@ grpcurl -plaintext -d '{"requestId":"smoke-001"}' \
 
 ## Go 动态网关
 
-网关对外提供 HTTP/JSON，对内通过 Nacos 发现 Java gRPC 服务，支持反射/描述文件动态调用与路由热更新。它不需要生成业务 Go stub，不参与 Maven 构建；需要 Go 1.27.4。启动方式及更新路由见[网关指南](gateway/README.md)。
+网关对外提供 HTTP/JSON，对内通过 Nacos 发现 Java gRPC 服务，支持反射/描述文件动态调用与路由热更新。它不需要生成业务 Go stub，不参与 Maven 构建；需要 Go 1.27.4。网关独立读取 [gateway/config/config.yaml](gateway/config/config.yaml)，无需导入 `.env`。启动方式及更新路由见[网关指南](gateway/README.md)。
+
+先将 `gateway/config/config.yaml` 中的 `nacos` 地址、namespace、group 和凭据与 Java 服务对齐，再从项目根目录启动：
+
+```bash
+cd gateway
+go run ./cmd/gateway
+```
+
+使用其他配置文件时运行 `go run ./cmd/gateway -config config/config.local.yaml`。配置内相对路径以配置文件所在目录为基准。启动配置修改后重启网关；路由规则支持热更新。网关不再读取 `GATEWAY_*` 或 `NACOS_*` 环境变量。
 
 ## 中间件与配置
 
@@ -159,7 +164,7 @@ grpcurl -plaintext -d '{"requestId":"smoke-001"}' \
 - Redis：预置 `StringRedisTemplate`；尚未缓存业务数据。
 - Nacos：同时接入服务发现与配置中心。默认读取 `LEDGER_GROUP` 下的 `account-service.yml` / `trading-service.yml`，允许配置暂时不存在；namespace 使用命名空间 ID，默认空值表示 public。
 
-连接参数模板见 [.env.example](.env.example)。复用已有中间件时，按[配置与运行](docs/configuration.md#复用已有中间件)填写地址、认证及 TLS 配置，无需启动项目 Compose。
+Java 服务连接参数模板见 [.env.example](.env.example)，Go 网关配置见 [gateway/config/config.yaml](gateway/config/config.yaml)。接入中间件时，按[配置与运行](docs/configuration.md#复用已有中间件)填写各自的地址、认证及 TLS 配置。
 
 ## 构建验证
 
