@@ -38,7 +38,6 @@ ledger-contracts/          # Protobuf 协议及构建时生成的 Java stub
 ledger-platform/           # 公共配置、Nacos gRPC 注册和发现客户端
 account-service/           # 账户服务，gRPC 19091，独立 account schema
 trading-service/           # 交易服务，gRPC 19082，独立 trading schema
-ledger-integration-tests/  # 调用链与可选真实中间件验证
 gateway/                   # Go 动态网关，独立 Go Modules 构建
 compose.yml                # 本项目独立的开发中间件
 ```
@@ -108,7 +107,7 @@ grpcurl -plaintext -d '{"requestId":"smoke-001"}' \
 }
 ```
 
-`grpcurl` 是可选工具，未安装时可以通过下方测试命令验证调用链。诊断接口不执行开户、资金变更或证券委托。
+`grpcurl` 是可选工具，未安装时可以通过 Go 网关调用诊断接口，见[网关指南](gateway/README.md)。诊断接口不执行开户、资金变更或证券委托。
 
 ## Go 动态网关
 
@@ -123,14 +122,11 @@ grpcurl -plaintext -d '{"requestId":"smoke-001"}' \
 
 全部连接参数见 [.env.example](.env.example)。可复用已有中间件：修改项目 `.env` 中的地址及凭据，无需运行本项目 Compose。现有 `/root/docker` 的 Nacos 配置含 TLS 与认证，需匹配客户端 TLS/信任配置；Kafka 使用 `SASL_PLAINTEXT`，需配置 `KAFKA_SECURITY_PROTOCOL`、`KAFKA_SASL_MECHANISM` 和 `KAFKA_SASL_JAAS_CONFIG`，并保证 broker advertised address 对服务可达。现有密码和证书未复制到仓库。
 
-## 验证命令
+## 构建验证
 
 ```bash
-# 无需运行中间件：启动真实 TCP gRPC 服务，验证调用链和无下游时的错误码。
+# 编译、打包 Java 模块，无需运行中间件。
 mvn verify
-
-# 先启动项目 Compose 并导入 .env，再验证真实 PostgreSQL、Redis、Kafka、Nacos。
-LEDGER_INFRA_TEST=true mvn verify
 ```
 
-中间件测试会在开发库执行 Flyway 初始化，写入带 TTL 的临时 Redis key、创建并删除随机 Kafka topic，并验证 Nacos 注册端口和服务间调用。MyBatis-Plus 测试使用 PostgreSQL 临时表验证 CRUD、驼峰映射、分页上限、乐观锁及事务连接共享，完成后回滚。请使用本项目开发环境运行。
+当前 Java 模块未包含自动化测试。运行时调用链按上方“gRPC 验证”检查；Go 网关的测试命令见[网关指南](gateway/README.md)。

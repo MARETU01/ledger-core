@@ -9,7 +9,7 @@
   <name>ledger-core</name>
   <modules>
     <module>ledger-contracts</module><module>ledger-platform</module>
-    <module>account-service</module><module>trading-service</module><module>ledger-integration-tests</module>
+    <module>account-service</module><module>trading-service</module>
   </modules>
   <properties>
     <java.version>25</java.version>

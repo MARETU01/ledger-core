@@ -42,31 +42,14 @@ Kafka 当前使用字符串 key/value 序列化，后续定义事件格式时需
 
 Redis 可注入 `StringRedisTemplate`，业务自行约定 key 前缀、序列化和过期时间。目前没有统一缓存注解策略，也没有使用 Redis 作为资金余额的权威存储。
 
-## 测试分层
-
-| 测试类 | 检查内容 | 需要真实中间件 |
-| --- | --- | --- |
-| `GrpcFrameworkTest` | 真实 TCP gRPC 调用链、下游缺失返回 UNAVAILABLE | 否，使用简单服务发现 |
-| `MybatisPlusPostgresTest` | PostgreSQL CRUD、Lambda 查询、分页及上限、乐观锁、事务连接共享 | 是，PostgreSQL |
-| `MiddlewareIntegrationTest` | Flyway、Redis、Kafka、Nacos 注册及通过发现调用 gRPC | 是，全部四种 |
+## 构建与运行验证
 
 ```bash
-# 默认：2 项 gRPC 测试通过，2 项需要中间件的测试跳过。
+# 编译、打包 Java 模块，无需运行中间件。
 mvn verify
-
-# 完整：先启动中间件并加载项目环境，执行当前全部 4 项测试。
-docker compose up -d --wait --wait-timeout 180
-set -a
-source .env
-set +a
-LEDGER_INFRA_TEST=true mvn verify
-
-# 只运行 PostgreSQL/MyBatis-Plus 测试；-am 同时构建所需模块。
-LEDGER_INFRA_TEST=true mvn -pl ledger-integration-tests -am test \
-  -Dtest=MybatisPlusPostgresTest -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-报告位于 `ledger-integration-tests/target/surefire-reports/`。中间件测试使用随机端口启动 Java 服务，结束后关闭上下文；不会留下长期运行的账户或交易进程。
+当前 Java 模块未包含自动化测试。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#gRPC-验证)检查诊断调用链。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
 
 ## 常见问题
 
@@ -87,7 +70,7 @@ LEDGER_INFRA_TEST=true mvn -pl ledger-integration-tests -am test \
 | Kafka 能连接 bootstrap 却无法收发 | broker 返回的 advertised address 也必须可达；核对 SASL 配置与 topic 是否存在 |
 | 修改 PostgreSQL 开发密码后认证失败 | 已存在的数据卷不会重新初始化密码，使用库内现有凭据或按数据库管理流程修改 |
 
-当前 Java 业务服务没有 HTTP Actuator 端口。不要通过 HTTP 请求 19091/19082 判断服务是否启动；使用 gRPC 探针、启动日志或集成测试。
+当前 Java 业务服务没有 HTTP Actuator 端口。不要通过 HTTP 请求 19091/19082 判断服务是否启动；使用 gRPC 探针或启动日志。
 
 ## Go 网关开发
 

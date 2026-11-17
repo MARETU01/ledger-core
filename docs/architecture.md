@@ -10,10 +10,9 @@
 | `ledger-platform` | 统一中间件配置、MyBatis-Plus 插件、gRPC 注册与发现工具 | Spring Boot、Spring Cloud 和中间件客户端 |
 | `account-service` | 账户服务启动入口和诊断接口 | contracts、platform |
 | `trading-service` | 交易服务启动入口，演示调用账户服务 | contracts、platform |
-| `ledger-integration-tests` | 同时装载服务并验证框架和真实中间件 | 两个服务的普通 JAR、测试库 |
 | `gateway` | Go 动态 HTTP → gRPC 转换、Nacos 发现、路由热更新 | 独立 Go Modules，不参与 Maven 构建 |
 
-服务构建时保留普通 JAR，并生成带 `exec` classifier 的可执行 JAR。前者供集成测试引用，运行服务使用 `*-exec.jar`。
+服务构建时保留普通 JAR，并生成带 `exec` classifier 的可执行 JAR。运行服务使用 `*-exec.jar`。
 
 ## 当前调用链
 

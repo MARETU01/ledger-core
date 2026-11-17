@@ -156,15 +156,4 @@ Flyway 迁移版本在同一服务内递增；已执行的文件保留原内容�
 
 金额字段使用 PostgreSQL `numeric` 和 Java `BigDecimal`。资金变更的余额约束、幂等和冲突处理仍由业务明确实现；普通 `BaseMapper.updateById` 不会自动保证这些约束。
 
-MyBatis 会话缓存可能让同一事务内两次相同查询返回同一个 Java 对象。测试并发版本冲突时，应使用独立对象或独立事务模拟旧快照；不要把同一对象引用误当成两个并发调用者。实际用法可参照 [MybatisPlusPostgresTest](../ledger-integration-tests/src/test/java/com/ledger/integration/MybatisPlusPostgresTest.java)。
-
-## 验证
-
-```bash
-set -a
-source .env
-set +a
-LEDGER_INFRA_TEST=true mvn verify
-```
-
-`MybatisPlusPostgresTest` 在一个 Spring 事务内创建 PostgreSQL 临时表，验证 BaseMapper CRUD、Lambda 查询、分页及其上限、`@Version` 拒绝旧版本更新。JdbcTemplate 建表和 Mapper 操作共享事务连接，测试结束回滚，不创建长期测试表。
+MyBatis 会话缓存可能让同一事务内两次相同查询返回同一个 Java 对象。测试并发版本冲突时，应使用独立对象或独立事务模拟旧快照；不要把同一对象引用误当成两个并发调用者。
