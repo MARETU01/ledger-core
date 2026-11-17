@@ -24,7 +24,7 @@
 | Spring Cloud Alibaba | 2025.1.0.0 |
 | Spring gRPC | 1.1.2，由 Spring Boot 管理 |
 | Go（网关） | 1.27.4 |
-| MyBatis-Plus | 3.5.18，Spring Boot 4 starter |
+| MyBatis-Plus | 3.5.18.1，Spring Boot 4 starter |
 
 Java 依赖版本以根 [pom.xml](pom.xml) 及其 BOM 为准，Go 版本以 [gateway/go.mod](gateway/go.mod) 为准。PostgreSQL、Nacos、Kafka 和 Redis 由运行环境提供，仓库不再附带中间件 Compose 文件。
 
@@ -146,5 +146,7 @@ Java 的 Nacos 默认连接配置位于各服务本地 YAML；dev 运行参数�
 # 编译、打包 Java 模块，无需运行中间件。
 mvn verify
 ```
+
+两个 Java 服务的 gRPC 请求处理均接入虚拟线程执行器，由 `spring.threads.virtual.enabled` 控制；dev 配置和 test/prod 的 Nacos 公共模板均已开启。Netty 网络 I/O 仍使用事件循环线程。
 
 当前 Java 模块未包含自动化测试。运行时调用链按上方“gRPC 验证”检查；Go 网关的测试命令见[网关指南](gateway/README.md)。
