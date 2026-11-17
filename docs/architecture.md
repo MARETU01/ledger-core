@@ -8,20 +8,22 @@
 | --- | --- | --- |
 | `ledger-pb` | 定义版本化 Protobuf 协议，生成 Java 消息和 gRPC stub | Protobuf、gRPC |
 | `ledger-common` | 统一中间件配置、MyBatis-Plus 插件、gRPC 注册与发现工具 | Spring Boot、Spring Cloud 和中间件客户端 |
-| `account-service` | 账户服务启动入口和诊断接口 | contracts、platform |
-| `trading-service` | 交易服务启动入口，演示调用账户服务 | contracts、platform |
+| `account-service` | 账户服务启动入口和诊断接口 | ledger-pb、ledger-common |
+| `trading-service` | 交易服务启动入口，演示调用账户服务 | ledger-pb、ledger-common |
 | `gateway` | Go 动态 HTTP → gRPC 转换、Nacos 发现、路由热更新 | 独立 Go Modules，不参与 Maven 构建 |
 
 服务构建时保留普通 JAR，并生成带 `exec` classifier 的可执行 JAR。运行服务使用 `*-exec.jar`。
+
+`ledger-pb` 与 `ledger-common` 都是依赖库，无需独立部署。`ledger-common` 放共用技术配置和客户端；余额、记账、委托等业务规则放在对应 service 中。
 
 ## 当前调用链
 
 ```mermaid
 sequenceDiagram
     participant C as gRPC 客户端
-    participant T as trading-service:19082
+    participant T as trading-service:8082
     participant N as Nacos
-    participant A as account-service:19091
+    participant A as account-service:8081
     A->>N: 启动后注册实际 gRPC 端口与 protocol=grpc
     T->>N: 启动后注册实际 gRPC 端口与 protocol=grpc
     C->>T: TradingProbe.Check(request_id)
@@ -32,7 +34,7 @@ sequenceDiagram
     T-->>C: service、request_id、downstream_service
 ```
 
-Java 侧两个服务都使用 `web-application-type: none`。`GrpcDiscoveryConfiguration` 监听 gRPC 启动事件，取得实际监听端口后触发 Nacos 注册，不依赖 HTTP WebServer 启动事件。平台引入 `spring-boot-web-server` 是为了提供 Spring Cloud 注册基类引用的事件类型，不会因此启动 HTTP 服务器。
+Java 侧两个服务都使用 `web-application-type: none`。`GrpcDiscoveryConfiguration` 监听 gRPC 启动事件，取得实际监听端口后触发 Nacos 注册，不依赖 HTTP WebServer 启动事件。`ledger-common` 引入 `spring-boot-web-server` 是为了提供 Spring Cloud 注册基类引用的事件类型，不会因此启动 HTTP 服务器。
 
 `DiscoveryGrpcChannels` 每次选择实例时过滤 `protocol=grpc` 元数据，按轮询选择实例，并按地址复用 ManagedChannel。当前不实现自动重试、熔断或失效地址连接的主动淘汰；缓存连接在应用关闭时释放。
 

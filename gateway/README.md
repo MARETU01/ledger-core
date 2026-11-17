@@ -21,6 +21,16 @@ go run ./cmd/gateway
 
 默认监听 `127.0.0.1:8080`，通过 Nacos 发现上游，每秒检查 `config/routes.yml`。初始配置无效或反射加载失败时退出，因此应先启动后端服务。
 
+PowerShell 用户先在项目根目录按[配置指南](../docs/configuration.md#powershell)导入 `.env`，再执行 `Set-Location gateway` 和 `go run ./cmd/gateway`。在另一个终端验证 HTTP：
+
+```powershell
+Invoke-RestMethod 'http://localhost:8080/healthz'
+Invoke-RestMethod 'http://localhost:8080/readyz'
+Invoke-RestMethod 'http://localhost:8080/api/v1/probes/trading?requestId=chain'
+```
+
+以下 `curl` 和带行尾 `\` 的示例使用 Bash。
+
 ```bash
 curl -fsS 'http://localhost:8080/healthz'
 curl -fsS 'http://localhost:8080/readyz'
@@ -84,7 +94,7 @@ routes:
              → 等待旧请求完成 → 整体切换 → 释放旧连接
 ```
 
-新配置在独立快照中准备。YAML、路由、字段或方法校验失败时，日志记录 `route update rejected`，保留旧快照。切换期间不会中断旧请求，新请求可能短暂等待，受旧路由超时约束。新快照未包含的旧路由会被移除。
+新配置在独立快照中准备。YAML、路由、字段或方法校验失败时，日志记录 `route update rejected`，保留旧快照。切换需要等待旧请求结束，新请求可能短暂等待。路由 timeout 只覆盖下游 RPC；读取请求体另受 HTTP 服务的 ReadTimeout（10 秒）约束。新快照未包含的旧路由会被移除。
 
 描述文件修改后，也需要修改路由文件或重新发布 Nacos 配置以触发重载。相同内容不会触发文件更新；被拒绝的配置需要修正后再次发布，当前没有管理 HTTP 接口或自动重试加载任务。
 
@@ -133,7 +143,7 @@ protoc -I ledger-pb/src/main/proto \
 
 ```bash
 go run ./cmd/gateway \
-  -static-targets 'account-service=127.0.0.1:19091;trading-service=127.0.0.1:19082'
+  -static-targets 'account-service=127.0.0.1:8081;trading-service=127.0.0.1:8082'
 ```
 
 同一服务的地址用逗号分隔，不同服务用分号。静态模式只替代网关发现，交易服务自身访问账户服务仍使用 Java 侧配置。
@@ -191,7 +201,17 @@ CGO_ENABLED=1 go test -race ./...
 
 默认不需要 Docker，测试后端也在运行时构造协议，不依赖业务 stub。覆盖反射依赖、描述文件、动态方法、参数类型、body 限制、超时/错误、身份头过滤、路由切换、实例移除及恢复。
 
-账户服务、交易服务与项目 Nacos 已运行且导入 `.env` 后，可以执行进程级联调：
+进程级联调当前使用 Unix SIGTERM 关闭临时网关，建议在 Linux/WSL 中运行。测试的静态发现分支仍固定访问账户 `19091`、交易 `19082`，因此需要在两个已导入 `.env` 的终端中分别覆盖 Java 端口：
+
+```bash
+# 终端一：从项目根目录运行。
+GRPC_PORT=19091 java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
+
+# 终端二：从项目根目录运行。
+GRPC_PORT=19082 java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar
+```
+
+项目 Nacos 和上述服务启动后，在第三个已导入 `.env` 的终端进入 `gateway/` 执行：
 
 ```bash
 GATEWAY_JAVA_TEST=true go test -v ./cmd/gateway \

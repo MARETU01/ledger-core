@@ -12,10 +12,10 @@ mvn --version
 mvn clean verify
 ```
 
-仅编译账户服务及其依赖、暂不执行测试时：
+仅构建账户服务及其依赖时：
 
 ```bash
-mvn -pl account-service -am package -DskipTests
+mvn -pl account-service -am package
 ```
 
 完整启动流程见首页。IDE 可分别运行 `AccountApplication` 和 `TradingApplication`，将 `.env` 中的变量填写到各运行配置。停服务使用 `Ctrl+C`，触发应用关闭及 Nacos 注销；中间件单独由 Compose 管理。
@@ -29,6 +29,8 @@ mvn -pl account-service -am package -DskipTests
 5. 增加真实 gRPC 调用测试，覆盖成功响应、错误状态和超时等与新增行为有关的场景。
 
 协议新增字段使用新编号，已删除字段的编号及名称用 `reserved` 保留，避免重新分配。当前 `ProbeRequest.request_id` 用于诊断透传；新增资金写接口时，需要单独设计业务请求标识和幂等规则。
+
+模块名为 `ledger-pb`，生成的 Java 包为 `com.ledger.pb.platform.v1`；当前 Protobuf package 仍为 `ledger.platform.v1`，因此 gRPC 方法名仍是 `/ledger.platform.v1.AccountProbe/Check` 等。模块或 Java 包改名不要求修改协议 package。
 
 调用其他服务时，可以参考 [TradingProbeEndpoint](../trading-service/src/main/java/com/ledger/trading/interfaces/grpc/TradingProbeEndpoint.java) 与 [DiscoveryGrpcChannels](../ledger-common/src/main/java/com/ledger/common/DiscoveryGrpcChannels.java)。当前探针使用 blocking stub 和 2 秒 deadline；该值写在代码中，尚未暴露环境变量。
 
@@ -49,7 +51,7 @@ Redis 可注入 `StringRedisTemplate`，业务自行约定 key 前缀、序列�
 mvn verify
 ```
 
-当前 Java 模块未包含自动化测试。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#gRPC-验证)检查诊断调用链。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
+当前 Java 模块未包含自动化测试；`mvn verify` 成功表示构建通过，不代表运行时中间件已连通。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查诊断调用链。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
 
 ## 常见问题
 
@@ -60,7 +62,7 @@ mvn verify
 | gRPC 提示 address already in use | 检查旧服务进程；使用当前进程的 `GRPC_PORT` 覆盖监听端口 |
 | TradingProbe 返回 UNAVAILABLE | 确认账户服务已启动且注册成功，双方 namespace/group 一致，实例有 `protocol=grpc` 且地址可达；停止服务后发现视图可能需要时间更新 |
 | gRPC 返回 DEADLINE_EXCEEDED | 检查账户服务地址、网络及耗时；当前下游调用 deadline 为 2 秒 |
-| grpcurl list 失败 | 确认访问的是 Java 服务端口 19091/19082，并使用 `-plaintext`；18848/19848 属于 Nacos |
+| grpcurl list 失败 | 确认访问的是 Java 服务端口 8081/8082，并使用 `-plaintext`；18848/19848 属于 Nacos |
 | Nacos 登录或连接失败 | 区分 API、客户端 gRPC 和控制台端口，核对认证与 TLS；项目默认分别为 18848、19848、18888 |
 | Flyway checksum mismatch | 已执行迁移文件可能被改动；还原旧文件，以新版本迁移修改结构 |
 | PostgreSQL relation does not exist | 核对迁移是否执行、`@TableName` 的 schema/table，以及 Flyway locations；MyBatis-Plus 不自动建表 |
@@ -70,7 +72,7 @@ mvn verify
 | Kafka 能连接 bootstrap 却无法收发 | broker 返回的 advertised address 也必须可达；核对 SASL 配置与 topic 是否存在 |
 | 修改 PostgreSQL 开发密码后认证失败 | 已存在的数据卷不会重新初始化密码，使用库内现有凭据或按数据库管理流程修改 |
 
-当前 Java 业务服务没有 HTTP Actuator 端口。不要通过 HTTP 请求 19091/19082 判断服务是否启动；使用 gRPC 探针或启动日志。
+当前 Java 业务服务没有 HTTP Actuator 端口。不要通过 HTTP 请求 8081/8082 判断服务是否启动；使用 gRPC 探针或启动日志。
 
 ## Go 网关开发
 

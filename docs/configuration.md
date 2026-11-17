@@ -15,12 +15,30 @@
 
 `.env.example` 的端口对应项目内 Compose；公共 YAML 的默认端口是中间件标准端口。启动项目 Compose 后应先导入 `.env`，不能直接依赖 YAML 默认地址。环境变量通过 YAML 占位符提供值；如果 Nacos 同时提供同名完整属性，最终以 Spring 属性来源优先级为准，不能假设占位符一定覆盖远端配置。排查时可先移除重复配置，或用启动参数明确指定。
 
+### Bash
+
 ```bash
 test -f .env || cp .env.example .env
 set -a
 source .env
 set +a
 ```
+
+### PowerShell
+
+在项目根目录执行。以下代码读取模板使用的 `KEY=VALUE` 格式，忽略空行和注释，并移除值两端的单引号或双引号：
+
+```powershell
+if (!(Test-Path -LiteralPath .env)) { Copy-Item -LiteralPath .env.example -Destination .env }
+foreach ($line in Get-Content -LiteralPath .env -Encoding utf8) {
+    if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+        $value = $Matches[2].Trim().Trim([char[]]@(34, 39))
+        [Environment]::SetEnvironmentVariable($Matches[1], $value, 'Process')
+    }
+}
+```
+
+它只设置当前终端及其子进程的环境变量，不执行 Bash 的变量展开或命令。每个用于启动服务的新终端都需要重新导入；在 IDE 中运行时，将变量填入运行配置。
 
 ## 环境变量
 
@@ -39,13 +57,15 @@ set +a
 | `NACOS_NAMESPACE` | 空 | namespace ID，空表示 public |
 | `NACOS_GROUP` | `LEDGER_GROUP` | 配置和服务发现使用的组 |
 | `SERVICE_IP` | `127.0.0.1` | 注册给其他服务访问的地址 |
-| `GRPC_PORT` | 按服务默认值 | 覆盖当前 Java 进程的 gRPC 端口 |
+| `GRPC_PORT` | 账户 8081 / 交易 8082 | 覆盖当前 Java 进程的 gRPC 端口 |
 
 `SERVICE_IP=127.0.0.1` 适用于两个服务都在宿主机启动。跨机器或容器部署时，要改成调用方可达的地址。分别启动多个服务时，按进程设置 `GRPC_PORT`，避免两个进程共用同一个导出的端口。
 
 ```bash
 GRPC_PORT=19191 java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
 ```
+
+PowerShell 中，在启动该服务的终端执行 `$env:GRPC_PORT = '19191'`；恢复默认值使用 `Remove-Item Env:GRPC_PORT`。
 
 ## Nacos 配置中心
 
@@ -67,13 +87,13 @@ spring:
 
 发布配置后，重启相应服务验证。当前没有为业务 Bean 设计动态刷新机制，不保证所有配置都能即时生效。开发 Nacos 使用 tmpfs，容器停止后配置数据不保留。
 
-## 复用 `/root/docker` 中的中间件
+## 复用已有中间件
 
-只修改本项目 `.env` 或应用启动参数，不修改 `/root/docker` 文件。该环境的中间件版本与项目 Compose 一致，但地址、认证和存储配置不同：
+填写本项目 `.env` 或应用启动参数，无需运行项目 Compose。按目标环境核对以下内容：
 
 - PostgreSQL：填入已有实例的库、用户和密码。当前 Flyway 会创建服务 schema，因此数据库用户需要相应建 schema/表权限。
-- Nacos：现有配置启用了认证和 TLS，需同时匹配服务器地址、客户端 TLS 和证书信任设置。仅填写用户名密码不等于已完成 TLS 接入；具体证书参数由部署环境提供。
-- Kafka：现有监听器使用 `SASL_PLAINTEXT`。在 `.env` 设置相应协议、机制及登录信息，且 advertised address 必须从运行 Java 的机器可达。
+- Nacos：如果目标环境启用了认证或 TLS，需匹配服务器地址、客户端认证和证书信任设置。仅填写用户名密码不等于已完成 TLS 接入；具体证书参数由部署环境提供，Go 网关配置见[网关指南](../gateway/README.md#配置项)。
+- Kafka：按目标监听器填写安全协议、SASL 机制及登录信息，且 advertised address 必须从运行 Java 的机器可达。
 - Redis：按已有实例填写地址、ACL 用户和密码。
 
 SASL 配置值包含空格和分号，供 Bash `source` 使用时用单引号包住整个值。以下使用示例凭据：
