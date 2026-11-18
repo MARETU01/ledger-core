@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -27,8 +26,6 @@ import (
 	"github.com/MARETU01/ledger-core/gateway/internal/discovery"
 	gateway "github.com/MARETU01/ledger-core/gateway/internal/gateway"
 	"github.com/nacos-group/nacos-sdk-go/v2/clients"
-	"github.com/nacos-group/nacos-sdk-go/v2/clients/config_client"
-	"github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client"
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
 	"google.golang.org/grpc/credentials"
@@ -58,37 +55,21 @@ func run(parent context.Context) error {
 	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	var naming naming_client.INamingClient
-	var remote config_client.IConfigClient
-	if cfg.StaticTargets == "" || cfg.RoutesSource == "nacos" {
-		param, err := nacosParameters(cfg.Nacos, cfg.StateDir)
-		if err != nil {
-			return err
-		}
-		if cfg.StaticTargets == "" {
-			naming, err = clients.NewNamingClient(param)
-			if err != nil {
-				return err
-			}
-			defer naming.CloseClient()
-		}
-		if cfg.RoutesSource == "nacos" {
-			remote, err = clients.NewConfigClient(param)
-			if err != nil {
-				return err
-			}
-			defer remote.CloseClient()
-		}
+	param, err := nacosParameters(cfg.Nacos, cfg.StateDir)
+	if err != nil {
+		return err
 	}
-	var source discovery.Source
-	if cfg.StaticTargets != "" {
-		source, err = discovery.ParseStatic(cfg.StaticTargets)
-		if err != nil {
-			return err
-		}
-	} else {
-		source = discovery.Nacos{Client: naming, Group: cfg.Nacos.Group}
+	remote, err := clients.NewConfigClient(param)
+	if err != nil {
+		return err
 	}
+	defer remote.CloseClient()
+	naming, err := clients.NewNamingClient(param)
+	if err != nil {
+		return err
+	}
+	defer naming.CloseClient()
+	source := discovery.Nacos{Client: naming, Group: cfg.Nacos.Group}
 	engine := gateway.New(source, creds, cfg.DescriptorDir)
 	defer engine.Close()
 	updates := make(chan struct{}, 1)
@@ -98,19 +79,17 @@ func run(parent context.Context) error {
 		default:
 		}
 	}
-	var load func() ([]byte, error)
-	var workers sync.WaitGroup
-	if remote != nil {
-		param := vo.ConfigParam{DataId: cfg.NacosDataID, Group: cfg.Nacos.Group}
-		load = func() ([]byte, error) { data, err := remote.GetConfig(param); return []byte(data), err }
-		param.OnChange = func(_, _, _, _ string) { notify() }
-		if err := remote.ListenConfig(param); err != nil {
-			return err
-		}
-		defer remote.CancelListenConfig(param)
-	} else {
-		load = func() ([]byte, error) { return readRoutes(cfg.RoutesFile) }
+	routeParam := vo.ConfigParam{DataId: cfg.RoutesDataID, Group: cfg.Nacos.Group}
+	load := func() ([]byte, error) {
+		data, err := remote.GetConfig(routeParam)
+		return []byte(data), err
 	}
+	routeParam.OnChange = func(_, _, _, _ string) { notify() }
+	if err := remote.ListenConfig(routeParam); err != nil {
+		return err
+	}
+	defer remote.CancelListenConfig(routeParam)
+	var workers sync.WaitGroup
 	data, err := load()
 	if err != nil {
 		return fmt.Errorf("load initial routes: %w", err)
@@ -122,30 +101,6 @@ func run(parent context.Context) error {
 	}
 	if err := apply(data); err != nil {
 		return fmt.Errorf("initial routes: %w", err)
-	}
-	if remote == nil {
-		workers.Go(func() {
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-			previous := sha256.Sum256(data)
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					current, err := load()
-					if err != nil {
-						slog.Warn("read routes failed; retaining active routes", "error", err)
-						continue
-					}
-					hash := sha256.Sum256(current)
-					if hash != previous {
-						previous = hash
-						notify()
-					}
-				}
-			}
-		})
 	}
 	workers.Go(func() {
 		for {
@@ -184,7 +139,7 @@ func run(parent context.Context) error {
 	if err != nil {
 		return err
 	}
-	slog.Info("gateway listening", "address", listener.Addr().String(), "routes_source", cfg.RoutesSource)
+	slog.Info("gateway listening", "address", listener.Addr().String(), "routes_data_id", cfg.RoutesDataID)
 	failed := make(chan error, 1)
 	go func() { failed <- server.Serve(listener) }()
 	select {
@@ -201,19 +156,6 @@ func run(parent context.Context) error {
 		return err
 	}
 	return nil
-}
-
-func readRoutes(filename string) ([]byte, error) {
-	f, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, config.MaxConfigBytes+1))
-	if len(data) > config.MaxConfigBytes {
-		return nil, fmt.Errorf("route file exceeds 1 MiB")
-	}
-	return data, err
 }
 
 func grpcCredentials(cfg config.TLS) (credentials.TransportCredentials, error) {

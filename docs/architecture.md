@@ -66,7 +66,7 @@ com.ledger.account 或 com.ledger.trading
 
 网关启动时读取独立的 `gateway/config/config.yaml`，配置 HTTP 监听、Nacos、上游 TLS、访问 token 及路由来源，不读取环境变量。Java 和网关均无需 `.env` 文件。可用 `-config` 指定其他启动配置；配置内相对路径以该文件所在目录为基准。服务发现和远端路由共用 YAML 中的 Nacos namespace/group，需与 Java 服务的注册配置对齐。
 
-启动配置在进程启动时加载，修改后需要重启。路由规则由 `routes_source` 选择本地文件或 Nacos：默认每秒检查 `config/routes.yml`，Nacos 模式订阅 `gateway-routes.yml`。两种来源的路由规则均支持热更新。
+启动配置在进程启动时加载，修改后需要重启。路由规则统一从 Nacos 订阅，默认 Data ID 为 `gateway-routes.yml`，支持热更新。本地 `config/routes.example.yml` 仅作为发布示例，运行时不读取。
 
 HTTP 请求按已发布路由解析，使用缓存的方法描述构造 dynamicpb 消息，通过复用的 gRPC 连接调用 Java。反射描述只在路由加载阶段读取；Nacos 实例变更独立更新 resolver，不要求重新发布路由。描述文件也可替代反射。
 

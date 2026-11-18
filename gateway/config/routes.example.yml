@@ -1,3 +1,4 @@
+# 路由示例：将完整内容发布到 Nacos 的 gateway-routes.yml，网关不会读取本文件。
 version: 1
 revision: bootstrap-1
 routes:

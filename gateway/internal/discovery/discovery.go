@@ -1,10 +1,7 @@
 package discovery
 
 import (
-	"fmt"
-	"net"
 	"sort"
-	"strings"
 	"sync"
 
 	"google.golang.org/grpc/resolver"
@@ -13,35 +10,6 @@ import (
 // Watch must publish its initial view before returning. Cancel stops updates.
 type Source interface {
 	Watch(service string, update func([]string)) (cancel func(), err error)
-}
-
-type Static map[string][]string
-
-func (s Static) Watch(service string, update func([]string)) (func(), error) {
-	addresses := s[service]
-	if len(addresses) == 0 {
-		return nil, fmt.Errorf("no static addresses for %s", service)
-	}
-	update(addresses)
-	return func() {}, nil
-}
-
-// ParseStatic accepts service=host:port;service=host:port,host:port.
-func ParseStatic(value string) (Static, error) {
-	targets := Static{}
-	for entry := range strings.SplitSeq(value, ";") {
-		service, addresses, ok := strings.Cut(entry, "=")
-		if !ok || service == "" || len(targets[service]) != 0 {
-			return nil, fmt.Errorf("invalid static target %q", entry)
-		}
-		for address := range strings.SplitSeq(addresses, ",") {
-			if _, _, err := net.SplitHostPort(address); err != nil {
-				return nil, fmt.Errorf("invalid static address: %w", err)
-			}
-			targets[service] = append(targets[service], address)
-		}
-	}
-	return targets, nil
 }
 
 type Builder struct{ Source Source }

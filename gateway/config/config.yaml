@@ -1,25 +1,27 @@
 # 网关启动配置；相对路径以本文件所在目录为基准。修改后重启网关。
-listen_addr: 127.0.0.1:8080
-routes_source: file # dev 使用本地路由，Nacos 仅做服务发现；也可按需切换为 nacos
-routes_file: routes.yml
-nacos_data_id: gateway-routes.yml
-descriptor_dir: ..
-# 留空使用 Nacos；也可填写 service=host:port;service=host:port,host:port
-static_targets: ""
-api_token: ""
-# 留空使用系统用户缓存目录下的 ledger-core-gateway
-state_dir: ""
-grpc_tls:
-  enabled: false
-  ca_file: ""
-  server_name: ""
+listen_addr: "${GATEWAY_LISTEN_ADDR:0.0.0.0:8080}"
+
 nacos:
-  server_addr: localhost:8848
-  namespace: ledger-dev # 与 Java dev 环境保持一致；test/prod 使用对应的 namespace ID
-  group: LEDGER_GROUP
-  username: ""
-  password: ""
+  server_addr: "${NACOS_SERVER_ADDR:localhost:8848}"
+  # 与 Java dev 环境保持一致；test/prod 使用对应的 namespace ID
+  namespace: "${NACOS_NAMESPACE:ledger-dev}"
+  group: "${NACOS_GROUP:LEDGER_GROUP}"
+  username: "${NACOS_USERNAME:}"
+  password: "${NACOS_PASSWORD:}"
   tls:
-    enabled: false
-    ca_file: ""
-    server_name: ""
+    enabled: "${NACOS_TLS_ENABLED:false}"
+    ca_file: "${NACOS_CA_FILE:}"
+    server_name: "${NACOS_SERVER_NAME:}"
+
+# 路由统一从 Nacos 加载；发布内容参考 routes.example.yml
+routes_data_id: "${GATEWAY_ROUTES_DATA_ID:gateway-routes.yml}"
+descriptor_dir: "${GATEWAY_DESCRIPTOR_DIR:..}"
+
+api_token: "${GATEWAY_API_TOKEN:}"
+
+# 留空使用系统用户缓存目录下的 ledger-core-gateway
+state_dir: "${GATEWAY_STATE_DIR:}"
+grpc_tls:
+  enabled: "${GATEWAY_GRPC_TLS:false}"
+  ca_file: "${GATEWAY_GRPC_CA_FILE:}"
+  server_name: "${GATEWAY_GRPC_SERVER_NAME:}"

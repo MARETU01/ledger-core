@@ -13,9 +13,9 @@
 | Nacos 的 `ledger-infrastructure.yml` | 数据库、Redis、Kafka、连接池、MyBatis、日志等公共运行配置 |
 | Nacos 的 `account-service.yml` / `trading-service.yml` | 各服务的 gRPC 端口及公共配置覆盖项 |
 | [gateway/config/config.yaml](../gateway/config/config.yaml) | Go 网关启动配置，独立于 Java 与 Nacos 运行配置 |
-| [gateway/config/routes.yml](../gateway/config/routes.yml) | 网关默认路由规则，支持热更新 |
+| [gateway/config/routes.example.yml](../gateway/config/routes.example.yml) | 网关路由示例，需发布到 Nacos 的 `gateway-routes.yml`，运行时不读取此文件 |
 
-Java dev 环境从本地 `bootstrap-dev.yml` 读取完整运行配置，Nacos 仅用于注册与发现，不读取配置中心。test/prod 在本地取得 Nacos 连接信息，再读取远端运行配置。Go 网关独立读取启动 YAML，不读取 `.env`，默认也使用本地路由文件和 Nacos 服务发现。
+Java dev 环境从本地 `bootstrap-dev.yml` 读取完整运行配置，Nacos 仅用于注册与发现，不读取配置中心。test/prod 在本地取得 Nacos 连接信息，再读取远端运行配置。Go 网关独立读取启动 YAML，不读取 `.env`；所有环境均使用 Nacos 路由配置和服务发现，启动前需发布网关路由。
 
 ## 环境切换
 

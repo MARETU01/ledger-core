@@ -33,6 +33,18 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// staticSource supplies local test backends without requiring Nacos.
+type staticSource map[string][]string
+
+func (s staticSource) Watch(service string, update func([]string)) (func(), error) {
+	addresses := s[service]
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("no test addresses for %s", service)
+	}
+	update(addresses)
+	return func() {}, nil
+}
+
 var fixtureOnce sync.Once
 var fixtureFile protoreflect.FileDescriptor
 
@@ -155,7 +167,7 @@ func expect(t *testing.T, result *httptest.ResponseRecorder, code int, fragment 
 
 func TestReflectionDynamicReloadAndRejectedUpdate(t *testing.T) {
 	addr := backend(t, true)
-	e := engine(t, discovery.Static{"backend": {addr}})
+	e := engine(t, staticSource{"backend": {addr}})
 	apply(t, e, routes("one", "Echo", "/api/v1/echo", ""))
 	expect(t, call(e, "POST", "/api/v1/echo", `{"value":"hello","createdAt":"2026-11-17T00:00:00Z"}`), 200, `2026-11-17T00:00:00Z`)
 	apply(t, e, routes("two", "Added", "/api/v1/new-method", ""))
@@ -179,7 +191,7 @@ func TestReflectionDynamicReloadAndRejectedUpdate(t *testing.T) {
 
 func TestBindingsValidationAndBodyLimits(t *testing.T) {
 	addr := backend(t, true)
-	e := engine(t, discovery.Static{"backend": {addr}})
+	e := engine(t, staticSource{"backend": {addr}})
 	cfg := routes("bindings", "Echo", "/api/v1/items/{id}", "    path_fields:\n      id: value\n    query_fields:\n      count: count\n      tag: tags\n      label: nested.label\n")
 	apply(t, e, cfg)
 	result := call(e, "POST", "/api/v1/items/path-value?count=9223372036854775807&tag=a&tag=b&label=nested", `{"value":"body-value"}`)
@@ -213,7 +225,7 @@ func TestBindingsValidationAndBodyLimits(t *testing.T) {
 
 func TestErrorsDeadlineAndMetadata(t *testing.T) {
 	addr := backend(t, true)
-	e := engine(t, discovery.Static{"backend": {addr}})
+	e := engine(t, staticSource{"backend": {addr}})
 	apply(t, e, routes("deadline", "Slow", "/api/v1/echo", "    timeout: 20ms\n"))
 	expect(t, call(e, "POST", "/api/v1/echo", `{}`), 504, "DEADLINE_EXCEEDED")
 	apply(t, e, routes("error", "Fail", "/api/v1/echo", ""))
@@ -250,7 +262,7 @@ func TestDescriptorFileWithoutReflection(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "service.pb"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	e := gateway.New(discovery.Static{"backend": {addr}}, insecure.NewCredentials(), dir)
+	e := gateway.New(staticSource{"backend": {addr}}, insecure.NewCredentials(), dir)
 	defer e.Close()
 	apply(t, e, routes("offline", "Echo", "/api/v1/echo", "    descriptor_set: service.pb\n"))
 	expect(t, call(e, "POST", "/api/v1/echo", `{"value":"offline"}`), 200, "offline")
@@ -308,7 +320,7 @@ func TestDiscoveryRemovalAndRecovery(t *testing.T) {
 
 func TestReloadWhileServing(t *testing.T) {
 	addr := backend(t, true)
-	e := engine(t, discovery.Static{"backend": {addr}})
+	e := engine(t, staticSource{"backend": {addr}})
 	apply(t, e, routes("first", "Echo", "/api/v1/echo", ""))
 	server := httptest.NewServer(gateway.Middleware(e, ""))
 	defer server.Close()
