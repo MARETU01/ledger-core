@@ -235,6 +235,29 @@ Java 服务的 Nacos 默认值在本地 YAML 中，也支持 `NACOS_*` 环境变
 
 固定 API token 只提供简单访问门槛，不构成身份系统，健康检查不受 token 限制。网关显式禁用 gRPC 自动重试；资金写请求超时后仍可能已执行，幂等与结果查询由后端业务实现。
 
+## 代码组织
+
+启动入口和运行编排位于 `cmd/gateway`，核心实现位于 `internal`。同一包内按职责拆分文件，测试可直接复用对应包的实现：
+
+```text
+cmd/gateway/
+  main.go          # 日志、进程信号和程序入口
+  run.go           # 配置加载、路由订阅、HTTP 服务与关闭流程
+  settings.go      # 上游 TLS 与 Nacos SDK 参数构造
+internal/
+  config/          # 启动配置、环境变量展开、路由配置校验
+  descriptor/      # 反射与描述文件加载
+  discovery/       # Nacos 服务发现及 gRPC resolver
+  gateway/
+    engine.go      # 路由快照、热更新与连接生命周期
+    handler.go     # HTTP 请求处理、动态 gRPC 调用及响应编码
+    bindings.go    # 路由参数绑定校验与 Protobuf 字段赋值
+    errors.go      # gRPC 状态转换与统一 JSON 错误响应
+    middleware.go  # 请求标识、固定 token 校验与访问日志
+```
+
+使用 `go run ./cmd/gateway` 或 `go build ./cmd/gateway` 构建整个入口包；单独运行 `main.go` 不会包含同包的其他文件。测试文件与被测代码放在同一目录，生成的描述文件放在 `descriptors/`，按协议版本分发。
+
 ## 测试
 
 在 `gateway/` 运行：

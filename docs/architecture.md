@@ -49,6 +49,8 @@ com.ledger.account 或 com.ledger.trading
 ├── application              # 用例编排、事务边界
 ├── domain                   # 业务规则、领域对象、仓储接口
 └── infrastructure
+    ├── config               # Spring 配置类，包含交易服务的账户客户端装配
+    ├── grpc                 # 下游 gRPC 连接与服务发现实现（当前在交易服务）
     └── persistence
         ├── entity           # MyBatis-Plus 数据库实体
         └── mapper           # @Mapper + BaseMapper

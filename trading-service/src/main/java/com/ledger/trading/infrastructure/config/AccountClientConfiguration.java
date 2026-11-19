@@ -1,4 +1,4 @@
-package com.ledger.trading.infrastructure;
+package com.ledger.trading.infrastructure.config;
 
 import com.ledger.trading.infrastructure.grpc.DiscoveryGrpcChannels;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
