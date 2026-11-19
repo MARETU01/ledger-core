@@ -30,9 +30,9 @@ mvn -pl account-service -am package
 
 协议新增字段使用新编号，已删除字段的编号及名称用 `reserved` 保留，避免重新分配。新增资金写接口时，需要单独设计业务请求标识和幂等规则。
 
-协议按业务领域和版本组织：`ledger/account/v1` 对应 `ledger.account.v1` 和 Java 包 `com.ledger.pb.account.v1`，交易协议同理。当前只保留两个协议骨架，尚未定义业务 RPC；目录约定见 [协议说明](../ledger-pb/README.md)。模块或 Java 包改名不要求修改 Protobuf package。
+协议按业务领域和版本组织：`ledger/account/v1` 对应 `ledger.account.v1` 和 Java 包 `com.ledger.pb.account.v1`，交易协议同理。账户和交易协议分别提供 SayHello 示例；目录约定见 [协议说明](../ledger-pb/README.md)。模块或 Java 包改名不要求修改 Protobuf package。
 
-调用其他服务时，可以复用 [DiscoveryGrpcChannels](../trading-service/src/main/java/com/ledger/trading/infrastructure/grpc/DiscoveryGrpcChannels.java) 获取连接，使用生成的 stub 发起请求，并显式设置 deadline。发现客户端由交易服务维护，目前没有实际业务调用。
+调用其他服务时，可以复用 [DiscoveryGrpcChannels](../trading-service/src/main/java/com/ledger/trading/infrastructure/grpc/DiscoveryGrpcChannels.java) 获取连接，使用生成的 stub 发起请求，并显式设置 deadline。发现客户端由交易服务维护，当前 [TradingHelloEndpoint](../trading-service/src/main/java/com/ledger/trading/interfaces/grpc/TradingHelloEndpoint.java) 展示了具体用法。
 
 每个服务独立声明中间件依赖并维护 `application.yml`。Nacos gRPC 注册与 MyBatis 插件使用各服务 `infrastructure.config` 下的普通 `@Configuration` 类，由应用扫描加载，无需自动配置导入清单。Nacos 注册监听器在 gRPC 启动事件发生时获取注册组件，避免提前判断 Bean 是否存在；未启用 Nacos 注册时跳过处理。修改这两项基础配置时需分别检查两个服务。
 
@@ -53,7 +53,7 @@ Redis 可注入 `StringRedisTemplate`，业务自行约定 key 前缀、序列�
 mvn verify
 ```
 
-当前 Java 模块未包含自动化测试；`mvn verify` 成功表示构建通过，不代表运行时中间件已连通。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查 gRPC 服务是否响应；业务调用链在新增接口后联调。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
+当前 Java 模块未包含自动化测试；`mvn verify` 成功表示构建通过，不代表运行时中间件已连通。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查 gRPC 服务是否响应；Hello 跨服务调用按 [Hello 示例](hello.md) 联调。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
 
 ## 常见问题
 
@@ -87,8 +87,8 @@ mvn verify
 
 网关使用独立 Go Modules，与 Maven 分开构建和测试。进入 `gateway/` 后执行 `go test ./...`、`go vet ./...`，需要并发检测时执行 `CGO_ENABLED=1 go test -race ./...`（需要 C 编译器）。
 
-网关测试使用测试后端，不要求运行 Java 服务或 Nacos。当前没有业务 RPC，真实环境调用链需在新增接口后联调。
+网关测试使用测试后端，不要求运行 Java 服务或 Nacos。Hello 的真实环境调用链按 [Hello 示例](hello.md) 联调。
 
-启动配置在 `gateway/config/config.yaml`，路由模板在 `gateway/config/routes.example.yml`，当前为空；实现业务 RPC 后需填写有效路由，再发布到 Nacos 的 `gateway-routes.yml`。网关无需导入 `.env`；在 IDE 中将工作目录设为 `gateway/`，或通过 `-config` 指定启动配置文件。监听、Nacos、TLS 和 token 等启动配置修改后需重启，Nacos 路由规则支持热更新。个人配置可复制为已忽略的 `gateway/config/config.local.yaml`，旧配置中的 `routes_source`、`routes_file` 字段需要删除。
+启动配置在 `gateway/config/config.yaml`，路由示例在 `gateway/config/routes.example.yml`，包含两个 Hello 接口，需发布到 Nacos 的 `gateway-routes.yml`。网关无需导入 `.env`；在 IDE 中将工作目录设为 `gateway/`，或通过 `-config` 指定启动配置文件。监听、Nacos、TLS 和 token 等启动配置修改后需重启，Nacos 路由规则支持热更新。个人配置可复制为已忽略的 `gateway/config/config.local.yaml`，旧配置中的 `routes_source`、`routes_file` 字段需要删除。
 
 新增 Java RPC 后，通过路由发布和反射或描述文件加载完成接入；只修改路由无需重编译 Go。进程级联调及配置字段见[网关指南](../gateway/README.md)。网关的 `/readyz` 返回生效 revision；无效更新在日志记录 `route update rejected` 并保留旧配置。

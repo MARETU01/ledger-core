@@ -5,5 +5,17 @@ package ledger.account.v1;
 option java_package = "com.ledger.pb.account.v1";
 option java_multiple_files = true;
 
-// 账户服务协议入口，后续在此定义 service、rpc 及对应的请求和响应。
-// 复用的账户模型按需拆分到同目录 account.proto。
+service AccountService {
+  // 学习示例，不访问数据库或修改账户。
+  rpc SayHello(SayHelloRequest) returns (SayHelloResponse);
+}
+
+message SayHelloRequest {
+  // 不传或只有空白时使用 World。
+  string name = 1;
+}
+
+message SayHelloResponse {
+  string message = 1;
+  string service = 2;
+}

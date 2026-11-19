@@ -1,6 +1,20 @@
-# 路由模板：当前没有业务 RPC，新增接口后在 routes 中填写对应路由。
-# 网关要求至少一条有效路由，不能直接使用此空模板启动。
-# 填写完成后发布到 Nacos 的 gateway-routes.yml；网关不读取本文件。
+# 将完整内容发布到 Nacos 的 gateway-routes.yml；网关不读取本文件。
 version: 1
-revision: initial-1
-routes: []
+revision: hello-1
+routes:
+  - id: account-hello
+    http_method: GET
+    http_path: /api/v1/hello/account
+    target_service: account-service
+    grpc_method: /ledger.account.v1.AccountService/SayHello
+    timeout: 2s
+    query_fields:
+      name: name
+  - id: trading-hello
+    http_method: GET
+    http_path: /api/v1/hello/trading
+    target_service: trading-service
+    grpc_method: /ledger.trading.v1.TradingService/SayHello
+    timeout: 3s
+    query_fields:
+      name: name

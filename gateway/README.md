@@ -8,7 +8,7 @@
 
 ## 启动与验证
 
-先按[项目首页](../README.md)启动中间件、账户服务和交易服务，实现业务 RPC 后，按下方“Nacos 配置中心”填写并发布 [路由模板](config/routes.example.yml)。当前模板为空，网关要求至少一条有效路由才能启动。网关使用 [config/config.yaml](config/config.yaml)，无需导入 `.env`。从项目根目录进入 Go 模块：
+先按[项目首页](../README.md)启动中间件、账户服务和交易服务，再按下方“Nacos 配置中心”发布包含 Hello 接口的 [路由示例](config/routes.example.yml)。完整示例见 [Hello 开发流程](../docs/hello.md)。网关使用 [config/config.yaml](config/config.yaml)，无需导入 `.env`。从项目根目录进入 Go 模块：
 
 ```bash
 cd gateway
@@ -65,7 +65,7 @@ go run ./cmd/gateway -config config/config.local.yaml
 
 ## 路由格式
 
-路由空模板见 [config/routes.example.yml](config/routes.example.yml)。下面是尚未实现的账户查询路由格式示例，需先实现相应协议与 RPC 才能使用：
+Hello 路由见 [config/routes.example.yml](config/routes.example.yml)。下面是尚未实现的账户查询路由格式示例，需先实现相应协议与 RPC 才能使用：
 
 ```yaml
 version: 1
@@ -117,7 +117,7 @@ routes:
 
 ### Nacos 配置中心
 
-在 Nacos 中创建 YAML 配置，以填写了有效业务路由的 [config/routes.example.yml](config/routes.example.yml) 作为初始内容（不能发布当前空模板用于启动）：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 `ledger-dev`。通过 `config/config.yaml` 的 `routes_data_id`、`nacos.group`、`nacos.namespace` 修改这些值；test/prod 对应 `ledger-test` / `ledger-prod` 或实际 namespace ID。
+在 Nacos 中创建 YAML 配置，以 [config/routes.example.yml](config/routes.example.yml) 的完整内容作为初始内容：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 `ledger-dev`。通过 `config/config.yaml` 的 `routes_data_id`、`nacos.group`、`nacos.namespace` 修改这些值；test/prod 对应 `ledger-test` / `ledger-prod` 或实际 namespace ID。
 
 ```yaml
 # config/config.yaml
@@ -134,7 +134,7 @@ routes_data_id: "${GATEWAY_ROUTES_DATA_ID:gateway-routes.yml}"
 
 反射先使用 v1，不支持时尝试 v1alpha。获取一个方法时，在同一条反射流内解析依赖，描述缓存于路由快照，请求处理不再访问反射。
 
-后端关闭反射时，可在实现账户 RPC 后从项目根目录生成包含依赖的描述文件：
+后端关闭反射时，可从项目根目录生成包含依赖的账户协议描述文件：
 
 ```bash
 mkdir -p gateway/descriptors
@@ -266,4 +266,4 @@ CGO_ENABLED=1 go test -race ./...
 
 默认测试不需要中间件，测试后端在运行时构造协议，不依赖业务 stub。覆盖启动配置的默认值、环境变量占位符、相对路径、错误配置、TLS/Nacos 参数，以及反射依赖、描述文件、动态方法、参数类型、body 限制、超时/错误、身份头过滤、路由切换、实例移除及恢复。热更新测试还覆盖慢 RPC 和慢请求体期间切换、旧连接释放、等待重载时取消，以及关闭时等待当前和旧快照的请求完成。
 
-当前没有业务 RPC，真实 Java 服务与 Nacos 的端到端调用需在新增接口后联调。
+真实 Java 服务与 Nacos 的 Hello 端到端调用按 [Hello 示例](../docs/hello.md) 手动联调。

@@ -5,5 +5,17 @@ package ledger.trading.v1;
 option java_package = "com.ledger.pb.trading.v1";
 option java_multiple_files = true;
 
-// 交易服务协议入口，后续在此定义 service、rpc 及对应的请求和响应。
-// 复用的订单模型按需拆分到同目录 order.proto。
+service TradingService {
+  // 学习示例：通过 gRPC 调用账户服务，再返回问候语及调用链信息。
+  rpc SayHello(SayHelloRequest) returns (SayHelloResponse);
+}
+
+message SayHelloRequest {
+  string name = 1;
+}
+
+message SayHelloResponse {
+  string message = 1;
+  string service = 2;
+  string downstream_service = 3;
+}

@@ -1,6 +1,6 @@
 # Protobuf 协议
 
-协议按业务领域和版本组织，不单独部署。当前仅保留协议骨架，没有业务 RPC 或消息。
+协议按业务领域和版本组织，不单独部署。账户与交易协议各自提供 SayHello 示例 RPC，分别拥有自己的请求和响应类型；流程见 [Hello 示例](../docs/hello.md)。
 
 ```text
 src/main/proto/ledger/
@@ -11,6 +11,8 @@ src/main/proto/ledger/
 ```
 
 模型变多时，在同目录按需添加 `account.proto`、`order.proto` 等文件，通过 proto `import` 引用；无需提前创建空模型文件。
+
+RPC 请求和响应统一使用 `<方法名>Request`、`<方法名>Response`，例如 `SayHello(SayHelloRequest) returns (SayHelloResponse)`。账户和交易领域在各自的 package 中定义消息。
 
 | 目录 | Protobuf package | 生成的 Java package |
 | --- | --- | --- |
