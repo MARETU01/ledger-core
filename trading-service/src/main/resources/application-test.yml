@@ -1,4 +1,4 @@
-# prod 环境：先连接 Nacos，再依次加载公共配置和服务专属配置。
+# test profile 自动加载：先连接 Nacos，再依次加载公共配置和服务专属配置。
 spring:
   config:
     import:
@@ -8,6 +8,6 @@ spring:
     nacos:
       server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
       discovery:
-        namespace: ${NACOS_NAMESPACE:ledger-prod}
+        namespace: ${NACOS_NAMESPACE:ledger-test}
       config:
-        namespace: ${NACOS_NAMESPACE:ledger-prod}
+        namespace: ${NACOS_NAMESPACE:ledger-test}

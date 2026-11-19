@@ -43,15 +43,15 @@ config/nacos/              # 发布到 Nacos 的公共与服务专属配置模�
 
 服务通过 `interfaces.grpc → application → domain` 组织业务，基础设施实现放在 `infrastructure`。当前只有诊断接口及必要配置，业务分层随实际用例添加。禁止跨服务直接访问对方 schema。
 
-日常业务开发主要修改两个 `*-service`；每个服务在自己的 POM 中声明中间件依赖。`application.yml` 保留必要启动配置和 Nacos 公共参数，dev 的完整运行配置放在本地 `bootstrap-dev.yml`，Nacos 仅用于注册与发现；test/prod 通过对应 bootstrap 文件加载 Nacos 配置，模板见 [config/nacos/](config/nacos/README.md)。Nacos 注册与 MyBatis 插件配置类位于各服务的 `infrastructure.config`。协议维护在 `ledger-pb`，无需单独启动。
+日常业务开发主要修改两个 `*-service`；每个服务在自己的 POM 中声明中间件依赖。`application.yml` 保留必要启动配置和 Nacos 公共参数，dev 的完整运行配置放在本地 `application-dev.yml`，Nacos 仅用于注册与发现；test/prod 通过对应的 `application-test.yml` / `application-prod.yml` 导入 Nacos 配置，模板见 [config/nacos/](config/nacos/README.md)。Nacos 注册与 MyBatis 插件配置类位于各服务的 `infrastructure.config`。协议维护在 `ledger-pb`，无需单独启动。
 
 ## 本地启动
 
-需要 JDK 25、本地 Maven 3.9+，以及可访问的 PostgreSQL、Nacos、Kafka 和 Redis；Go 网关可选。开发环境先准备中间件，在 Nacos 创建 `ledger-dev` namespace，默认注册中心地址为 `localhost:8848`、Group 为 `LEDGER_GROUP`，无需 `.env` 文件，按实际环境调整两个服务的 `bootstrap-dev.yml`。dev 无需发布 Nacos 配置；test/prod 则需按 [Nacos 发布说明](config/nacos/README.md)发布公共、账户和交易配置。以下命令从项目根目录运行，首次构建需要下载依赖。
+需要 JDK 25、本地 Maven 3.9+，以及可访问的 PostgreSQL、Nacos、Kafka 和 Redis；Go 网关可选。开发环境先准备中间件，在 Nacos 创建 `ledger-dev` namespace，默认注册中心地址为 `localhost:8848`、Group 为 `LEDGER_GROUP`，无需 `.env` 文件，按实际环境调整两个服务的 `application-dev.yml`。dev 无需发布 Nacos 配置；test/prod 则需按 [Nacos 发布说明](config/nacos/README.md)发布公共、账户和交易配置。以下命令从项目根目录运行，首次构建需要下载依赖。
 
 启动服务前需完成数据库初始化：按[数据库 SQL 说明](db/README.md)执行 `db/account/001_create_schema.sql` 和 `db/trading/001_create_schema.sql`。后续表结构变更也需手动执行对应 SQL，服务启动时不自动初始化数据库。
 
-Java 服务默认使用 `dev`，namespace ID 为 `ledger-dev`。测试或生产环境通过 `--spring.profiles.active=test` / `prod` 或 `SPRING_PROFILES_ACTIVE` 切换，默认 namespace 分别为 `ledger-test` / `ledger-prod`；可用 `NACOS_NAMESPACE` 覆盖实际 ID。详见[环境切换](docs/configuration.md#环境切换)。`bootstrap-*.yml` 由 `application.yml` 显式导入。
+Java 服务默认使用 `dev`，namespace ID 为 `ledger-dev`。测试或生产环境通过 `--spring.profiles.active=test` / `prod` 或 `SPRING_PROFILES_ACTIVE` 切换，默认 namespace 分别为 `ledger-test` / `ledger-prod`；可用 `NACOS_NAMESPACE` 覆盖实际 ID。详见[环境切换](docs/configuration.md#环境切换)。公共配置通过 `spring.profiles.default: dev` 设置默认环境，Spring Boot 自动加载对应的 `application-{profile}.yml`，显式选择 test/prod 时不会加载 dev 配置。
 
 ### 启动服务
 
@@ -138,7 +138,7 @@ go run ./cmd/gateway
 - Redis：预置 `StringRedisTemplate`；尚未缓存业务数据。
 - Nacos：dev 仅使用注册与发现，配置中心已关闭。test/prod 先读取 `LEDGER_GROUP` 下的 `ledger-infrastructure.yml`，再读取自身的 `account-service.yml` / `trading-service.yml`，需在启动前发布。环境 namespace 默认分别为 `ledger-dev`、`ledger-test`、`ledger-prod`。
 
-Java 的 Nacos 默认连接配置位于各服务本地 YAML；dev 运行参数在各服务的 `bootstrap-dev.yml`，test/prod 远端模板见 [config/nacos/](config/nacos/README.md)。Go 网关配置见 [gateway/config/config.yaml](gateway/config/config.yaml)。接入中间件时，按[配置与运行](docs/configuration.md#复用已有中间件)填写地址、认证及 TLS 配置。
+Java 的 Nacos 默认连接配置位于各服务本地 YAML；dev 运行参数在各服务的 `application-dev.yml`，test/prod 远端模板见 [config/nacos/](config/nacos/README.md)。Go 网关配置见 [gateway/config/config.yaml](gateway/config/config.yaml)。接入中间件时，按[配置与运行](docs/configuration.md#复用已有中间件)填写地址、认证及 TLS 配置。
 
 ## 构建验证
 

@@ -2,7 +2,7 @@
 
 [返回项目首页](../../README.md)
 
-本目录保存 test/prod 的发布模板，不作为服务的本地回退配置，不会打包进应用 JAR。test/prod 先读取本地 Nacos 连接配置，再加载公共配置和各自的服务配置。dev 完全使用各服务的 `bootstrap-dev.yml`，Nacos 仅作注册中心，不读取这些配置。
+本目录保存 test/prod 的发布模板，不作为服务的本地回退配置，不会打包进应用 JAR。test/prod 先读取本地 Nacos 连接配置，再加载公共配置和各自的服务配置。dev 完全使用各服务的 `application-dev.yml`，Nacos 仅作注册中心，不读取这些配置。
 
 ## namespace 与 Group
 

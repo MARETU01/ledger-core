@@ -1,4 +1,4 @@
-# dev 使用本地运行配置；Nacos 仅用于服务注册与发现，不读取配置中心。
+# 默认 dev 环境使用本地运行配置；Nacos 仅用于服务注册与发现，不读取配置中心。
 spring:
   cloud:
     nacos:
@@ -55,7 +55,7 @@ spring:
       ack-mode: record
   grpc:
     server:
-      port: ${GRPC_PORT:8082}
+      port: ${GRPC_PORT:8081}
       reflection:
         enabled: true
       health:

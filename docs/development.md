@@ -18,7 +18,7 @@ mvn clean verify
 mvn -pl account-service -am package
 ```
 
-完整启动流程见首页。dev 只需创建 Nacos 注册 namespace 并调整本地 `bootstrap-dev.yml`，无需发布配置；test/prod 先按 [Nacos 发布说明](../config/nacos/README.md)发布运行配置。IDE 可直接运行 `AccountApplication` 或 `TradingApplication`，无需 `.env`。默认 Nacos 地址为 `localhost:8848`、Group 为 `LEDGER_GROUP`，namespace 随 profile 选择；部署时按需覆盖。默认环境为 dev，可用 Active profiles、`SPRING_PROFILES_ACTIVE` 或 `--spring.profiles.active=test` / `prod` 切换。`application.yml` 动态导入对应的 `bootstrap-*.yml`，无需添加 bootstrap starter。停服务使用 `Ctrl+C`，触发应用关闭及 Nacos 注销。
+完整启动流程见首页。dev 只需创建 Nacos 注册 namespace 并调整本地 `application-dev.yml`，无需发布配置；test/prod 先按 [Nacos 发布说明](../config/nacos/README.md)发布运行配置。IDE 可直接运行 `AccountApplication` 或 `TradingApplication`，无需 `.env`。默认 Nacos 地址为 `localhost:8848`、Group 为 `LEDGER_GROUP`，namespace 随 profile 选择；部署时按需覆盖。默认环境为 dev，可用 Active profiles、`SPRING_PROFILES_ACTIVE` 或 `--spring.profiles.active=test` / `prod` 切换。公共配置通过 `spring.profiles.default: dev` 设置默认环境，Spring Boot 自动加载对应的 `application-{profile}.yml`，无需手动导入本地环境文件或添加 bootstrap starter。停服务使用 `Ctrl+C`，触发应用关闭及 Nacos 注销。
 
 ## 修改 gRPC 协议
 
@@ -60,7 +60,7 @@ mvn verify
 | 现象 | 检查与处理 |
 | --- | --- |
 | Enforcer 提示 Java 版本不匹配 | 检查 `java -version`、`mvn --version` 和 IDE Maven Runner，均应使用 JDK 25 |
-| Java 服务连接了错误的数据库/Redis/Kafka 地址 | dev 检查本地 `bootstrap-dev.yml`；test/prod 检查当前 namespace 下的公共配置及服务覆盖项；`POSTGRES_*` 等旧变量不再被配置引用 |
+| Java 服务连接了错误的数据库/Redis/Kafka 地址 | dev 检查本地 `application-dev.yml`；test/prod 检查当前 namespace 下的公共配置及服务覆盖项；`POSTGRES_*` 等旧变量不再被配置引用 |
 | 切换到 test/prod 后无法连接 Nacos | 默认地址为 localhost:8848，按实际部署覆盖，并核对所选环境的 namespace、group 和认证 |
 | test/prod 的 Nacos 配置加载失败或数据源缺少 URL | 核对公共和服务专属 Data ID 均已发布且非空；不会回退到 dev 的本地配置 |
 | gRPC 提示 address already in use | 检查旧服务进程；使用当前进程的 `GRPC_PORT` 覆盖监听端口 |
@@ -75,7 +75,8 @@ mvn verify
 | Kafka 能连接 bootstrap 却无法收发 | broker 返回的 advertised address 也必须可达；核对 SASL 配置与 topic 是否存在 |
 | 修改 PostgreSQL 开发密码后认证失败 | 已存在的数据卷不会重新初始化密码，使用库内现有凭据或按数据库管理流程修改 |
 | 网关提示 open gateway config | 默认从当前工作目录读取 `config/config.yaml`；进入 `gateway/` 启动，或使用 `-config` 指定文件 |
-| 修改 `.env` 后网关配置没有变化 | 网关只读取启动 YAML；修改其中的 `nacos`、`listen_addr` 等字段后重启 |
+| 修改 `.env` 后网关配置没有变化 | 网关不会自动加载 `.env`；在启动 YAML 中声明占位符并设置对应进程环境变量，或直接修改 YAML 字段，然后重启 |
+| 设置环境变量后网关配置没有变化 | 检查实际使用的 `-config` 文件是否在对应字段声明了 `${VAR:默认值}` 或 `${VAR}`；直接写死的字段不会被环境变量覆盖，修改后需重启 |
 | 网关提示 flag provided but not defined | 旧的逐项启动参数已移除，使用 `-config config/config.local.yaml` |
 | 网关提示 field ... not found | 启动配置严格校验字段；对照 `gateway/config/config.yaml` 检查字段名、缩进，并确认没有将路由 YAML 当作启动配置 |
 | 网关找不到路由或证书文件 | 配置中的相对路径以启动配置所在目录为准；`descriptor_set` 以 `descriptor_dir` 为准 |
@@ -85,6 +86,8 @@ mvn verify
 ## Go 网关开发
 
 网关使用独立 Go Modules，与 Maven 分开构建和测试。进入 `gateway/` 后执行 `go test ./...`、`go vet ./...`，需要并发检测时执行 `CGO_ENABLED=1 go test -race ./...`（需要 C 编译器）。
+
+默认测试使用测试后端，不要求运行 Java 服务或 Nacos。真实调用链测试 `TestJavaGatewayHotReload` 默认跳过，需准备中间件与两个 Java 服务后显式启用，命令见[网关测试](../gateway/README.md#测试)。
 
 启动配置在 `gateway/config/config.yaml`，路由示例在 `gateway/config/routes.example.yml`，需先发布到 Nacos 的 `gateway-routes.yml`。网关无需导入 `.env`；在 IDE 中将工作目录设为 `gateway/`，或通过 `-config` 指定启动配置文件。监听、Nacos、TLS 和 token 等启动配置修改后需重启，Nacos 路由规则支持热更新。个人配置可复制为已忽略的 `gateway/config/config.local.yaml`，旧配置中的 `routes_source`、`routes_file` 字段需要删除。
 

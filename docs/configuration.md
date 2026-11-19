@@ -6,39 +6,39 @@
 
 | 文件或来源 | 作用 |
 | --- | --- |
-| [账户 application.yml](../account-service/src/main/resources/application.yml) / [交易 application.yml](../trading-service/src/main/resources/application.yml) | 服务名、默认 dev、非 HTTP 启动方式、Nacos 公共配置和环境导入规则 |
-| 各服务的 `bootstrap-dev.yml` | 完整的本地开发配置；Nacos 仅用于注册与发现，配置中心关闭 |
-| 各服务的 `bootstrap-test.yml` / `bootstrap-prod.yml` | 环境对应的 Nacos 地址、namespace 及远端配置导入 |
+| [账户 application.yml](../account-service/src/main/resources/application.yml) / [交易 application.yml](../trading-service/src/main/resources/application.yml) | 服务名、默认 dev、非 HTTP 启动方式和 Nacos 公共配置 |
+| 各服务的 `application-dev.yml` | 完整的本地开发配置；Nacos 仅用于注册与发现，配置中心关闭 |
+| 各服务的 `application-test.yml` / `application-prod.yml` | 环境对应的 Nacos 地址、namespace 及远端配置导入 |
 | [config/nacos/](../config/nacos/README.md) | 需发布到 Nacos 的配置模板，不作为本地回退配置 |
 | Nacos 的 `ledger-infrastructure.yml` | 数据库、Redis、Kafka、连接池、MyBatis、日志等公共运行配置 |
 | Nacos 的 `account-service.yml` / `trading-service.yml` | 各服务的 gRPC 端口及公共配置覆盖项 |
 | [gateway/config/config.yaml](../gateway/config/config.yaml) | Go 网关启动配置，独立于 Java 与 Nacos 运行配置 |
 | [gateway/config/routes.example.yml](../gateway/config/routes.example.yml) | 网关路由示例，需发布到 Nacos 的 `gateway-routes.yml`，运行时不读取此文件 |
 
-Java dev 环境从本地 `bootstrap-dev.yml` 读取完整运行配置，Nacos 仅用于注册与发现，不读取配置中心。test/prod 在本地取得 Nacos 连接信息，再读取远端运行配置。Go 网关独立读取启动 YAML，不读取 `.env`；所有环境均使用 Nacos 路由配置和服务发现，启动前需发布网关路由。
+Java dev 环境从本地 `application-dev.yml` 读取完整运行配置，Nacos 仅用于注册与发现，不读取配置中心。test/prod 在本地取得 Nacos 连接信息，再读取远端运行配置。Go 网关独立读取启动 YAML，不读取 `.env`；所有环境均使用 Nacos 路由配置和服务发现，启动前需发布网关路由。
 
 ## 环境切换
 
 每个 Java 服务的资源目录包含：
 
 ```text
-application.yml       # 必要启动配置和 Nacos 公共参数
-bootstrap-dev.yml     # 完整本地开发配置，仅使用 Nacos 注册与发现
-bootstrap-test.yml    # Nacos 测试环境连接与配置导入
-bootstrap-prod.yml    # Nacos 生产环境连接与配置导入
+application.yml       # 必要启动配置、默认 profile 和 Nacos 公共参数
+application-dev.yml   # 完整本地开发配置，仅使用 Nacos 注册与发现
+application-test.yml  # Nacos 测试环境连接与配置导入
+application-prod.yml  # Nacos 生产环境连接与配置导入
 ```
 
-这些 `bootstrap-*.yml` 通过一条动态 `spring.config.import` 加载，无需添加 bootstrap starter：
+Spring Boot 根据启用的 profile 自动加载对应的 `application-{profile}.yml`，并与公共的 `application.yml` 合并。公共配置只声明默认环境，不再手动拼接文件名：
 
 ```yaml
 spring:
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
-  config:
-    import: classpath:bootstrap-${spring.profiles.active}.yml
+    default: dev
 ```
 
-只需设置一个环境变量 `SPRING_PROFILES_ACTIVE`，未设置时使用 dev。请选择 dev、test、prod 中的单个环境；该导入方式不支持逗号分隔的多 profile 值。也可通过 `--spring.profiles.active=test` 覆盖选择，文件名会随最终的 profile 一起切换。
+未显式启用 profile 时使用 dev。通过环境变量 `SPRING_PROFILES_ACTIVE`、IDE 的 Active profiles 或 `--spring.profiles.active=test` 选择环境；启用 test/prod 后不会加载 dev 配置。Spring Boot 原生支持逗号分隔的多个 profile，例如 `dev,local`，并按声明顺序加载，后者覆盖前者；`application-local.yml` 需自行提供并妥善管理其中的本地凭据。每次选择 dev、test、prod 中的一个环境，再按需叠加附加 profile，避免混用不同环境的 Nacos 连接配置。显式启用其他 profile 时，dev 默认配置不会自动叠加，需要开发配置时应明确包含 dev。
+
+项目使用 Spring Boot Config Data 机制；test/prod 仍通过各自文件内的 `spring.config.import` 导入 Nacos 配置。无需添加 `spring-cloud-starter-bootstrap`，也不依赖旧的 Bootstrap 加载机制。
 
 | Profile | 默认 namespace ID | Nacos 地址 |
 | --- | --- | --- |
@@ -48,7 +48,7 @@ spring:
 
 Group 默认 `LEDGER_GROUP`。namespace 必须提前创建；`NACOS_NAMESPACE` 可覆盖默认 ID。切换 profile 会选择对应 namespace，但不会自动创建 namespace、复制配置或替换已导出的 Nacos 地址。若显式设置了 `NACOS_NAMESPACE`，需在切换环境时一起调整。
 
-dev 的 `spring.cloud.nacos.config.enabled` 和 `import-check.enabled` 均为 false，`spring.cloud.nacos.discovery.enabled` 为 true。开发时直接修改各服务 `bootstrap-dev.yml` 中的数据库、Redis、Kafka 等参数，无需在 `ledger-dev` 发布任何配置；注册中心仍需可访问。test/prod 的公共与服务专属配置需先发布到对应 namespace。
+dev 的 `spring.cloud.nacos.config.enabled` 和 `import-check.enabled` 均为 false，`spring.cloud.nacos.discovery.enabled` 为 true。开发时直接修改各服务 `application-dev.yml` 中的数据库、Redis、Kafka 等参数，无需在 `ledger-dev` 发布任何配置；注册中心仍需可访问。test/prod 的公共与服务专属配置需先发布到对应 namespace。
 
 ```bash
 # 默认开发环境，使用本地配置，只需准备中间件和 Nacos 注册中心
@@ -83,7 +83,7 @@ java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
 
 | 可选环境变量 | 默认值 | 含义 |
 | --- | --- | --- |
-| `SPRING_PROFILES_ACTIVE` | `dev` | Java 环境，可选 dev / test / prod |
+| `SPRING_PROFILES_ACTIVE` | 未显式启用 profile 时默认 `dev` | 选择 dev / test / prod，可按需叠加附加 profile |
 | `NACOS_SERVER_ADDR` | `localhost:8848` | Nacos API 地址 |
 | `NACOS_USERNAME` / `NACOS_PASSWORD` | 空 | Nacos 认证信息 |
 | `NACOS_NAMESPACE` | 默认随 profile 选择 | 实际 namespace ID；留空字符串表示 public，通常无需显式设置 |
@@ -92,7 +92,7 @@ java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
 
 Nacos 客户端自动选择本机 IP 作为实例注册地址，无需设置 `SERVICE_IP`。Pod 中通常会选择容器网络地址；多网卡环境若自动选择的地址不可达，可通过 Spring 的 `spring.cloud.nacos.discovery.network-interface` 指定网卡。调用方需能访问所注册的地址。
 
-dev 直接修改本地 `bootstrap-dev.yml`，test/prod 在目标 Nacos 中修改中间件参数。历史 `.env` 无需保留，但迁移前应确认其中的自定义地址或凭据已转移到对应配置或部署环境。不要将真实凭据写回仓库模板。
+dev 直接修改本地 `application-dev.yml`，test/prod 在目标 Nacos 中修改中间件参数。历史 `.env` 无需保留，但迁移前应确认其中的自定义地址或凭据已转移到对应配置或部署环境。不要将真实凭据写回仓库模板。
 
 ## Nacos 配置中心
 
@@ -119,7 +119,7 @@ test/prod 使用非 optional 的 `nacos:` 导入，加载异常会终止启动�
 
 ## 复用已有中间件
 
-Java 的 Nacos 默认连接参数位于本地 YAML；地址或认证不同于默认值时，通过部署环境变量、IDE 或命令行覆盖。dev 在本地 `bootstrap-dev.yml` 中配置中间件，test/prod 在目标 namespace 的远端 YAML 中配置：
+Java 的 Nacos 默认连接参数位于本地 YAML；地址或认证不同于默认值时，通过部署环境变量、IDE 或命令行覆盖。dev 在本地 `application-dev.yml` 中配置中间件，test/prod 在目标 namespace 的远端 YAML 中配置：
 
 - PostgreSQL：修改 `spring.datasource` 的库、用户和密码，并按[数据库 SQL](../db/README.md)手动执行初始化或结构变更脚本。
 - Redis：修改 `spring.data.redis` 的地址、ACL 用户和密码。
@@ -144,5 +144,7 @@ spring:
 ## Go 动态网关
 
 网关独立读取 [gateway/config/config.yaml](../gateway/config/config.yaml)，无需导入 `.env`。开发环境默认 namespace 为 `ledger-dev`；连接 test/prod 时将 `nacos.namespace` 改为 `ledger-test` / `ledger-prod` 或实际 ID，地址、group 和凭据也需与 Java 服务对齐。
+
+启动 YAML 的字段值支持 `${VAR:默认值}` 和 `${VAR}`；默认配置已声明 `GATEWAY_*`、`NACOS_*` 占位符，也可通过 `NACOS_NAMESPACE` 切换 namespace。自定义 YAML 仅在字段显式声明占位符时读取对应环境变量，网关不会自动加载 `.env` 文件。变量未设置且无默认值时启动报错，已设置但为空的变量保留空值。修改启动配置或环境变量后需重启网关，完整规则见[环境变量占位符](../gateway/README.md#环境变量占位符)。
 
 从 `gateway/` 运行 `go run ./cmd/gateway`，或用 `-config` 指定启动配置。相对路径以启动配置所在目录为准。网关路由、TLS 及热更新说明见[网关指南](../gateway/README.md)。

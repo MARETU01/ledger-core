@@ -18,7 +18,7 @@ go run ./cmd/gateway
 
 默认监听 `0.0.0.0:8080`，通过 Nacos 发现上游并订阅路由配置。初始路由不存在、无效或反射加载失败时退出，因此应先发布路由并启动后端服务。
 
-所有环境的网关路由均从 Nacos 获取，本地只保留示例文件，运行时不读取。Java 服务的完整开发配置在各自的 `bootstrap-dev.yml`；test/prod 才使用远端 Java 配置。
+所有环境的网关路由均从 Nacos 获取，本地只保留示例文件，运行时不读取。Java 服务的完整开发配置在各自的 `application-dev.yml`；test/prod 才使用远端 Java 配置。
 
 PowerShell 用户在项目根目录执行 `Set-Location gateway` 和 `go run ./cmd/gateway`。在另一个终端验证 HTTP：
 
@@ -113,9 +113,9 @@ routes:
              → 等待旧请求完成 → 整体切换 → 释放旧连接
 ```
 
-新配置在独立快照中准备。YAML、路由、字段或方法校验失败时，日志记录 `route update rejected`，保留旧快照。切换需要等待旧请求结束，新请求可能短暂等待。路由 timeout 只覆盖下游 RPC；读取请求体另受 HTTP 服务的 ReadTimeout（10 秒）约束。新快照未包含的旧路由会被移除。
+新配置在独立快照中准备。YAML、路由、字段或方法校验失败时，日志记录 `route update rejected`，保留旧快照。当前请求处理全程持有读锁，切换等待写锁期间，新请求和 `/readyz` 也会等待；慢请求可能延长等待时间。路由 timeout 只覆盖下游 RPC；读取请求体另受 HTTP 服务的 ReadTimeout（10 秒）约束。新快照未包含的旧路由会被移除。
 
-描述文件修改后，也需要修改路由文件或重新发布 Nacos 配置以触发重载。相同内容不会触发文件更新；被拒绝的配置需要修正后再次发布，当前没有管理 HTTP 接口或自动重试加载任务。
+网关不监听本地路由或描述文件的变化。修改描述文件后，需要在 Nacos 中更新路由配置（例如修改 `revision`）以触发重新加载，或重启网关；只修改本地示例文件不会触发重载。被拒绝的配置需要修正后再次发布；若因上游暂不可用而加载失败，可在上游恢复后更新 `revision` 再次发布。当前没有管理 HTTP 接口或自动重试加载任务。
 
 ### Nacos 配置中心
 
@@ -160,7 +160,7 @@ protoc -I ledger-pb/src/main/proto \
 
 默认读取当前工作目录下的 `config/config.yaml`；可用 `go run ./cmd/gateway -config /path/to/config.yaml` 指定其他文件。启动 YAML 支持环境变量占位符，不提供逐项覆盖的启动参数。未知字段、错误类型或无效配置会阻止启动。
 
-配置中的相对文件/目录路径均以 `config/config.yaml` 所在目录为基准。启动配置修改后需要重启；Nacos 中的路由规则支持热更新。真实密码和 token 请放在单独的本地配置中，例如已被 Git 忽略的 `config/config.local.yaml`，通过 `-config config/config.local.yaml` 使用。
+配置中的相对文件/目录路径均以实际选用的启动配置文件所在目录为基准。启动配置修改后需要重启；Nacos 中的路由规则支持热更新。真实密码和 token 可通过启动 YAML 中的环境变量占位符注入，也可放在已被 Git 忽略的 `config/config.local.yaml`，通过 `-config config/config.local.yaml` 使用。
 
 | YAML 字段 | 默认值或作用 |
 | --- | --- |
@@ -243,7 +243,7 @@ go vet ./...
 CGO_ENABLED=1 go test -race ./...
 ```
 
-默认测试不需要中间件，测试后端在运行时构造协议，不依赖业务 stub。覆盖启动配置的默认值、相对路径、错误配置、TLS/Nacos 参数，以及反射依赖、描述文件、动态方法、参数类型、body 限制、超时/错误、身份头过滤、路由切换、实例移除及恢复。
+默认测试不需要中间件，测试后端在运行时构造协议，不依赖业务 stub。覆盖启动配置的默认值、环境变量占位符、相对路径、错误配置、TLS/Nacos 参数，以及反射依赖、描述文件、动态方法、参数类型、body 限制、超时/错误、身份头过滤、路由切换、实例移除及恢复。`TestJavaGatewayHotReload` 默认跳过，普通 `go test ./...` 通过不代表真实 Java 服务与 Nacos 的调用链已验证。
 
 进程级联调当前使用 Unix SIGTERM 关闭临时网关，建议在 Linux/WSL 中运行。先在两个终端启动 Java 服务，并确认它们注册到网关使用的 Nacos namespace/group；端口通过 Nacos 自动发现，无需固定覆盖。Nacos 使用本地 YAML 默认值或部署环境变量：
 
