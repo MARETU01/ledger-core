@@ -18,7 +18,7 @@ mvn clean verify
 mvn -pl account-service -am package
 ```
 
-完整启动流程见首页。dev 只需创建 Nacos 注册 namespace 并调整本地 `application-dev.yml`，无需发布配置；test/prod 先按 [Nacos 发布说明](../config/nacos/README.md)发布运行配置。IDE 可直接运行 `AccountApplication` 或 `TradingApplication`，无需 `.env`。默认 Nacos 地址为 `localhost:8848`、Group 为 `LEDGER_GROUP`，namespace 随 profile 选择；部署时按需覆盖。默认环境为 dev，可用 Active profiles、`SPRING_PROFILES_ACTIVE` 或 `--spring.profiles.active=test` / `prod` 切换。公共配置通过 `spring.profiles.default: dev` 设置默认环境，Spring Boot 自动加载对应的 `application-{profile}.yml`，无需手动导入本地环境文件或添加 bootstrap starter。停服务使用 `Ctrl+C`，触发应用关闭及 Nacos 注销。
+完整启动流程见首页。dev 只需创建 Nacos 注册 namespace 并调整本地 `application-dev.yml`，无需发布配置；test/prod 先按 [Nacos 发布说明](configuration.md#nacos-配置中心)发布运行配置。IDE 可直接运行 `AccountApplication` 或 `TradingApplication`，无需 `.env`。默认 Nacos 地址为 `localhost:8848`、Group 为 `LEDGER_GROUP`，namespace 随 profile 选择；部署时按需覆盖。默认环境为 dev，可用 Active profiles、`SPRING_PROFILES_ACTIVE` 或 `--spring.profiles.active=test` / `prod` 切换。公共配置通过 `spring.profiles.default: dev` 设置默认环境，Spring Boot 自动加载对应的 `application-{profile}.yml`，无需手动导入本地环境文件或添加 bootstrap starter。停服务使用 `Ctrl+C`，触发应用关闭及 Nacos 注销。
 
 ## 修改 gRPC 协议
 

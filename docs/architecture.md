@@ -13,7 +13,7 @@
 
 服务构建时保留普通 JAR，并生成带 `exec` classifier 的可执行 JAR。运行服务使用 `*-exec.jar`。
 
-`ledger-pb` 是协议依赖库，无需独立部署。两个服务分别声明中间件依赖，`application.yml` 只维护必要启动项、默认 profile 和 Nacos 公共参数。Spring Boot 按 profile 自动加载对应的 `application-{profile}.yml`；未显式启用 profile 时使用 dev。dev 完整使用本地 `application-dev.yml`，Nacos 仅用于注册与发现，配置中心和导入检查均关闭。test/prod 先读取 Nacos 的 `ledger-infrastructure.yml`，再读取自己的服务配置，模板在 `config/nacos/`。环境 namespace 默认分别为 `ledger-dev`、`ledger-test`、`ledger-prod`。根 POM 只统一依赖版本与构建约束，基础配置类位于各服务的 `infrastructure.config`。
+`ledger-pb` 是协议依赖库，无需独立部署。两个服务分别声明中间件依赖，`application.yml` 只维护必要启动项、默认 profile 和 Nacos 公共参数。Spring Boot 按 profile 自动加载对应的 `application-{profile}.yml`；未显式启用 profile 时使用 dev。dev 完整使用本地 `application-dev.yml`，Nacos 仅用于注册与发现，配置中心和导入检查均关闭。test/prod 先读取 Nacos 的 `ledger-infrastructure.yml`，再读取自己的服务配置，运行参数参考各服务的 `application-dev.yml`，字段筛选与发布步骤见 [Nacos 配置中心](configuration.md#nacos-配置中心)。环境 namespace 默认分别为 `ledger-dev`、`ledger-test`、`ledger-prod`。根 POM 只统一依赖版本与构建约束，基础配置类位于各服务的 `infrastructure.config`。
 
 ## 当前调用链
 

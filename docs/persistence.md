@@ -2,7 +2,7 @@
 
 [返回项目首页](../README.md)
 
-两个服务分别在自己的 POM 中声明 `mybatis-plus-spring-boot4-starter`、分页解析器和 PostgreSQL 驱动，版本通过根 POM 的 BOM 统一管理。各服务的 `infrastructure.config.MybatisPlusConfiguration` 注册分页与乐观锁插件。dev 在本地 `application-dev.yml` 维护数据库连接和 MyBatis 参数；test/prod 使用 Nacos 的 `ledger-infrastructure.yml`，服务专属配置可覆盖公共项。发布模板见 [config/nacos/](../config/nacos/README.md)，无需手动创建 SqlSessionFactory。调整插件策略时需分别检查两个服务。
+两个服务分别在自己的 POM 中声明 `mybatis-plus-spring-boot4-starter`、分页解析器和 PostgreSQL 驱动，版本通过根 POM 的 BOM 统一管理。各服务的 `infrastructure.config.MybatisPlusConfiguration` 注册分页与乐观锁插件。dev 在本地 `application-dev.yml` 维护数据库连接和 MyBatis 参数；test/prod 使用 Nacos 的 `ledger-infrastructure.yml`，服务专属配置可覆盖公共项。数据库连接及 MyBatis 参数参考各服务的 `application-dev.yml`，发布方式见 [Nacos 配置中心](configuration.md#nacos-配置中心)，无需手动创建 SqlSessionFactory。调整插件策略时需分别检查两个服务。
 
 ## 添加业务持久层
 

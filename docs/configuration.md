@@ -7,9 +7,8 @@
 | 文件或来源 | 作用 |
 | --- | --- |
 | [账户 application.yml](../account-service/src/main/resources/application.yml) / [交易 application.yml](../trading-service/src/main/resources/application.yml) | 服务名、默认 dev、非 HTTP 启动方式和 Nacos 公共配置 |
-| 各服务的 `application-dev.yml` | 完整的本地开发配置；Nacos 仅用于注册与发现，配置中心关闭 |
+| [账户 application-dev.yml](../account-service/src/main/resources/application-dev.yml) / [交易 application-dev.yml](../trading-service/src/main/resources/application-dev.yml) | 完整的本地开发配置，也是准备 test/prod 运行参数的参考；Nacos 仅用于注册与发现，配置中心关闭 |
 | 各服务的 `application-test.yml` / `application-prod.yml` | 环境对应的 Nacos 地址、namespace 及远端配置导入 |
-| [config/nacos/](../config/nacos/README.md) | 需发布到 Nacos 的配置模板，不作为本地回退配置 |
 | Nacos 的 `ledger-infrastructure.yml` | 数据库、Redis、Kafka、连接池、MyBatis、日志等公共运行配置 |
 | Nacos 的 `account-service.yml` / `trading-service.yml` | 各服务的 gRPC 端口及公共配置覆盖项 |
 | [gateway/config/config.yaml](../gateway/config/config.yaml) | Go 网关启动配置，独立于 Java 与 Nacos 运行配置 |
@@ -88,7 +87,7 @@ java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
 | `NACOS_USERNAME` / `NACOS_PASSWORD` | 空 | Nacos 认证信息 |
 | `NACOS_NAMESPACE` | 默认随 profile 选择 | 实际 namespace ID；留空字符串表示 public，通常无需显式设置 |
 | `NACOS_GROUP` | `LEDGER_GROUP` | 配置与服务发现的组 |
-| `GRPC_PORT` | 账户 8081 / 交易 8082 | dev 本地配置及 test/prod 远端模板均支持覆盖当前实例端口 |
+| `GRPC_PORT` | 账户 8081 / 交易 8082 | dev 本地配置及按下方示例发布的 test/prod 配置支持覆盖当前实例端口 |
 
 Nacos 客户端自动选择本机 IP 作为实例注册地址，无需设置 `SERVICE_IP`。Pod 中通常会选择容器网络地址；多网卡环境若自动选择的地址不可达，可通过 Spring 的 `spring.cloud.nacos.discovery.network-interface` 指定网卡。调用方需能访问所注册的地址。
 
@@ -96,15 +95,39 @@ dev 直接修改本地 `application-dev.yml`，test/prod 在目标 Nacos 中修�
 
 ## Nacos 配置中心
 
-先按 [Nacos 发布说明](../config/nacos/README.md)创建对应 namespace。dev 只使用注册中心，无需发布配置；test/prod 需在各自 namespace 下发布以下配置，格式均为 YAML：
+dev 只使用注册中心，无需发布 Java 运行配置。test/prod 先创建 `ledger-test` / `ledger-prod` namespace；若使用自动生成的 namespace ID，通过 `NACOS_NAMESPACE` 填入实际 ID，Go 网关也使用同一 ID。默认 Group 为 `LEDGER_GROUP`，可由 `NACOS_GROUP` 覆盖。
 
-| Data ID | 模板 | 用途 |
+运行参数以各服务的 [application-dev.yml（账户）](../account-service/src/main/resources/application-dev.yml) 和 [application-dev.yml（交易）](../trading-service/src/main/resources/application-dev.yml) 为参考，仓库不再维护另一套独立的 Nacos 模板。发布前按目标环境修改地址、凭据、连接池和其他运行参数。
+
+在 test/prod 各自的 namespace 下发布以下配置，格式均选 YAML；Data ID 与服务的 `application-test.yml` / `application-prod.yml` 中的导入保持一致：
+
+| Data ID | 参考各服务配置中的字段 | 用途 |
 | --- | --- | --- |
-| `ledger-infrastructure.yml` | [公共运行配置](../config/nacos/ledger-infrastructure.yml) | 两个服务共享的中间件与运行参数 |
-| `account-service.yml` | [账户配置](../config/nacos/account-service.yml) | 账户端口与专属覆盖项 |
-| `trading-service.yml` | [交易配置](../config/nacos/trading-service.yml) | 交易端口与专属覆盖项 |
+| `ledger-infrastructure.yml` | `spring.threads`、`spring.lifecycle`、`spring.datasource`、`spring.data.redis`、`spring.kafka`、`spring.grpc.server.reflection`、`spring.grpc.server.health`、`mybatis-plus`、`logging` | 两个服务共享的中间件与运行参数 |
+| `account-service.yml` | 账户的 `spring.grpc.server.port`，以及账户专属覆盖项 | 账户端口与专属配置 |
+| `trading-service.yml` | 交易的 `spring.grpc.server.port`，以及交易专属覆盖项 | 交易端口与专属配置 |
 
-模板使用示例值，发布前需按目标 test/prod 环境修改地址、认证和运行参数。两个服务分别先导入公共配置，再导入自身配置；服务配置可覆盖公共项，例如：
+按字段筛选后保留原 YAML 层级，将公共字段合并到同一份 YAML 中；`spring.grpc.server.port` 分别放在服务配置中。不要整份复制 `application-dev.yml`：其中的 `spring.cloud.nacos` 属于本地环境连接设置，包含关闭配置中心的 dev 开关，不应发布到远端。服务名、profile、`web-application-type`、Nacos 地址、namespace、认证及 `spring.config.import` 也继续保留在服务本地的 `application*.yml` 中。
+
+服务配置的最小内容如下，分别发布到对应的 Data ID：
+
+```yaml
+# Data ID: account-service.yml
+spring:
+  grpc:
+    server:
+      port: ${GRPC_PORT:8081}
+```
+
+```yaml
+# Data ID: trading-service.yml
+spring:
+  grpc:
+    server:
+      port: ${GRPC_PORT:8082}
+```
+
+两个服务分别先导入公共配置，再导入自身配置；服务配置可覆盖公共项，例如账户使用独立的数据库用户或不同的连接池大小：
 
 ```yaml
 spring:
@@ -113,9 +136,11 @@ spring:
       maximum-pool-size: 15
 ```
 
-test/prod 使用非 optional 的 `nacos:` 导入，加载异常会终止启动，不回退读取 dev 配置。当前 SDK 可能将缺失或为空的 Data ID 视为空配置，启动前应核对全部配置已发布且非空。
+每个 test/prod namespace 均需准备公共、账户和交易三份配置，切换 profile 不会复制远端配置。test/prod 使用非 optional 的 `nacos:` 导入，加载异常会终止启动，不回退读取 dev 配置。当前 SDK 可能将缺失或为空的 Data ID 视为空配置，启动前应核对全部配置已发布且非空。
 
-发布后重启对应服务验证。目前不保证数据库连接池、Kafka 客户端或 gRPC 端口支持即时刷新。仓库模板不会自动发布，配置中心的修改也不会自动写回仓库。
+配置中的 `${spring.application.name}` 在应用端解析，用于 Kafka consumer group；服务端口的 `${GRPC_PORT:8081}` / `${GRPC_PORT:8082}` 支持实例级覆盖。数据库、Redis、Kafka 等其他参数在 Nacos 中填写目标环境的实际值。
+
+完成数据库初始化后启动服务，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查调用链。发布运行配置后重启对应服务验证，目前不保证数据库连接池、Kafka 客户端或 gRPC 端口支持即时刷新。修改本地参考配置不会自动发布到 Nacos，配置中心的修改也不会自动写回仓库。
 
 ## 复用已有中间件
 
