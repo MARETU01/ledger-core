@@ -69,7 +69,7 @@ func fixture() protoreflect.FileDescriptor {
 			},
 			Service: []*descriptorpb.ServiceDescriptorProto{{Name: proto.String("Dynamic"), Method: []*descriptorpb.MethodDescriptorProto{}}},
 		}
-		for _, name := range []string{"Echo", "Added", "Slow", "Fail", "Metadata", "Stream"} {
+		for _, name := range []string{"Echo", "Added", "Slow", "Blocked", "Fail", "Metadata", "Stream"} {
 			fd.Service[0].Method = append(fd.Service[0].Method, &descriptorpb.MethodDescriptorProto{Name: proto.String(name), InputType: proto.String(".gateway.test.v1.Payload"), OutputType: proto.String(".gateway.test.v1.Payload"), ServerStreaming: proto.Bool(name == "Stream")})
 		}
 		var err error
@@ -86,6 +86,11 @@ func fixture() protoreflect.FileDescriptor {
 
 func backend(t *testing.T, reflected bool) string {
 	t.Helper()
+	return backendWithGate(t, reflected, nil, nil)
+}
+
+func backendWithGate(t *testing.T, reflected bool, entered chan<- struct{}, release <-chan struct{}) string {
+	t.Helper()
 	file := fixture()
 	input := file.Messages().ByName("Payload")
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -94,7 +99,7 @@ func backend(t *testing.T, reflected bool) string {
 	}
 	server := grpc.NewServer()
 	service := grpc.ServiceDesc{ServiceName: "gateway.test.v1.Dynamic", HandlerType: (*interface{})(nil), Metadata: "dynamic_gateway_test.proto"}
-	for _, name := range []string{"Echo", "Added", "Slow", "Fail", "Metadata"} {
+	for _, name := range []string{"Echo", "Added", "Slow", "Blocked", "Fail", "Metadata"} {
 		service.Methods = append(service.Methods, grpc.MethodDesc{MethodName: name, Handler: func(_ any, ctx context.Context, decode func(any) error, _ grpc.UnaryServerInterceptor) (any, error) {
 			message := dynamicpb.NewMessage(input)
 			if err := decode(message); err != nil {
@@ -109,6 +114,15 @@ func backend(t *testing.T, reflected bool) string {
 				case <-ctx.Done():
 					return nil, status.FromContextError(ctx.Err()).Err()
 				case <-time.After(150 * time.Millisecond):
+				}
+			case "Blocked":
+				if entered != nil {
+					entered <- struct{}{}
+					select {
+					case <-ctx.Done():
+						return nil, status.FromContextError(ctx.Err()).Err()
+					case <-release:
+					}
 				}
 			case "Fail":
 				return nil, status.Error(codes.InvalidArgument, "private upstream error detail")

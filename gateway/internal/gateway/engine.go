@@ -23,25 +23,39 @@ type Engine struct {
 	credentials   credentials.TransportCredentials
 	descriptorDir string
 	mu            sync.RWMutex
-	reloadMu      sync.Mutex
+	reload        chan struct{}
 	current       *snapshot
+	snapshots     map[*snapshot]struct{}
 	closed        bool
 }
 type snapshot struct {
 	mux         *http.ServeMux
 	connections map[string]*grpc.ClientConn
 	revision    string
+	requests    sync.WaitGroup
+	done        chan struct{}
 }
 
 func New(source discovery.Source, creds credentials.TransportCredentials, descriptorDir string) *Engine {
-	return &Engine{source: source, credentials: creds, descriptorDir: descriptorDir}
+	return &Engine{
+		source: source, credentials: creds, descriptorDir: descriptorDir,
+		reload: make(chan struct{}, 1), snapshots: make(map[*snapshot]struct{}),
+	}
 }
 
 // Apply fully builds and validates an immutable snapshot before replacing the old one.
 // Existing requests finish on the old snapshot before its connections are closed.
 func (e *Engine) Apply(ctx context.Context, data []byte) error {
-	e.reloadMu.Lock()
-	defer e.reloadMu.Unlock()
+	// Serialize builders, but let canceled reloads stop waiting immediately.
+	select {
+	case e.reload <- struct{}{}:
+		defer func() { <-e.reload }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	e.mu.RLock()
 	closed := e.closed
 	e.mu.RUnlock()
@@ -52,7 +66,10 @@ func (e *Engine) Apply(ctx context.Context, data []byte) error {
 	if err != nil {
 		return err
 	}
-	next := &snapshot{mux: http.NewServeMux(), connections: map[string]*grpc.ClientConn{}, revision: cfg.Revision}
+	next := &snapshot{
+		mux: http.NewServeMux(), connections: map[string]*grpc.ClientConn{},
+		revision: cfg.Revision, done: make(chan struct{}),
+	}
 	committed := false
 	defer func() {
 		if !committed {
@@ -92,16 +109,18 @@ func (e *Engine) Apply(ctx context.Context, data []byte) error {
 			return err
 		}
 	}
+	e.mu.Lock()
 	if err := ctx.Err(); err != nil {
+		e.mu.Unlock()
 		return err
 	}
-	e.mu.Lock()
 	old := e.current
 	e.current = next
+	e.snapshots[next] = struct{}{}
 	e.mu.Unlock()
 	committed = true
 	if old != nil {
-		old.close()
+		go e.retire(old)
 	}
 	slog.Info("gateway routes applied", "revision", cfg.Revision, "routes", len(cfg.Routes))
 	return nil
@@ -118,19 +137,26 @@ func register(mux *http.ServeMux, pattern string, handler http.Handler) (err err
 }
 
 func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	if e.current == nil {
+	// Acquire a snapshot lease under the same lock that publishes replacements.
+	// Once a snapshot is retired no new leases can be added to its WaitGroup.
+	e.mu.Lock()
+	s := e.current
+	if s != nil {
+		s.requests.Add(1)
+	}
+	e.mu.Unlock()
+	if s == nil {
 		writeError(w, r, http.StatusServiceUnavailable, "UNAVAILABLE", "No active routing configuration")
 		return
 	}
-	_, pattern := e.current.mux.Handler(r)
+	defer s.requests.Done()
+	_, pattern := s.mux.Handler(r)
 	if pattern == "" {
 		allowed := []string{}
 		for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE"} {
 			copy := r.Clone(r.Context())
 			copy.Method = method
-			if _, p := e.current.mux.Handler(copy); p != "" {
+			if _, p := s.mux.Handler(copy); p != "" {
 				allowed = append(allowed, method)
 			}
 		}
@@ -142,7 +168,7 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	e.current.mux.ServeHTTP(w, r)
+	s.mux.ServeHTTP(w, r)
 }
 
 func (e *Engine) Ready() (string, bool) {
@@ -159,14 +185,33 @@ func (s *snapshot) close() {
 		_ = conn.Close()
 	}
 }
-func (e *Engine) Close() {
-	e.reloadMu.Lock()
-	defer e.reloadMu.Unlock()
+
+func (e *Engine) retire(s *snapshot) {
+	s.requests.Wait()
+	s.close()
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	delete(e.snapshots, s)
+	close(s.done)
+	e.mu.Unlock()
+}
+
+// Close stops accepting requests and waits for current and retired snapshots to drain.
+func (e *Engine) Close() {
+	e.reload <- struct{}{}
+	defer func() { <-e.reload }()
+	e.mu.Lock()
 	e.closed = true
-	if e.current != nil {
-		e.current.close()
-		e.current = nil
+	current := e.current
+	e.current = nil
+	pending := make([]*snapshot, 0, len(e.snapshots))
+	for s := range e.snapshots {
+		pending = append(pending, s)
+	}
+	e.mu.Unlock()
+	if current != nil {
+		go e.retire(current)
+	}
+	for _, s := range pending {
+		<-s.done
 	}
 }
