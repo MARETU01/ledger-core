@@ -8,7 +8,7 @@
 
 ## 启动与验证
 
-先按[项目首页](../README.md)启动中间件、账户服务和交易服务，并按下方“Nacos 配置中心”将 [路由示例](config/routes.example.yml) 发布到 Nacos。网关使用 [config/config.yaml](config/config.yaml)，无需导入 `.env`。从项目根目录进入 Go 模块：
+先按[项目首页](../README.md)启动中间件、账户服务和交易服务，实现业务 RPC 后，按下方“Nacos 配置中心”填写并发布 [路由模板](config/routes.example.yml)。当前模板为空，网关要求至少一条有效路由才能启动。网关使用 [config/config.yaml](config/config.yaml)，无需导入 `.env`。从项目根目录进入 Go 模块：
 
 ```bash
 cd gateway
@@ -25,7 +25,6 @@ PowerShell 用户在项目根目录执行 `Set-Location gateway` 和 `go run ./c
 ```powershell
 Invoke-RestMethod 'http://localhost:8080/healthz'
 Invoke-RestMethod 'http://localhost:8080/readyz'
-Invoke-RestMethod 'http://localhost:8080/api/v1/probes/trading?requestId=chain'
 ```
 
 以下 `curl` 和带行尾 `\` 的示例使用 Bash。
@@ -33,13 +32,9 @@ Invoke-RestMethod 'http://localhost:8080/api/v1/probes/trading?requestId=chain'
 ```bash
 curl -fsS 'http://localhost:8080/healthz'
 curl -fsS 'http://localhost:8080/readyz'
-curl -fsS 'http://localhost:8080/api/v1/probes/account?requestId=hello'
-curl -fsS -X POST 'http://localhost:8080/api/v1/probes/account' \
-  -H 'Content-Type: application/json' -d '{"requestId":"hello"}'
-curl -fsS 'http://localhost:8080/api/v1/probes/trading?requestId=chain'
 ```
 
-`/healthz` 表示 HTTP 进程可响应；`/readyz` 返回已应用的路由 revision，不代表所有上游当前可用。当前探针不执行资金或交易操作。
+`/healthz` 表示 HTTP 进程可响应；`/readyz` 返回已应用的路由 revision，不代表所有上游当前可用。业务接口需实现并发布路由后才能调用。
 
 ```bash
 go build -o bin/gateway ./cmd/gateway
@@ -70,20 +65,20 @@ go run ./cmd/gateway -config config/config.local.yaml
 
 ## 路由格式
 
-发布到 Nacos 的路由示例见 [config/routes.example.yml](config/routes.example.yml)。路径参数示例：
+路由空模板见 [config/routes.example.yml](config/routes.example.yml)。下面是尚未实现的账户查询路由格式示例，需先实现相应协议与 RPC 才能使用：
 
 ```yaml
 version: 1
 revision: account-2
 routes:
-  - id: account-probe
+  - id: account-get
     http_method: GET
-    http_path: /api/v1/probes/account/{requestId}
+    http_path: /api/v1/accounts/{accountId}
     target_service: account-service
-    grpc_method: /ledger.platform.v1.AccountProbe/Check
+    grpc_method: /ledger.account.v1.AccountService/GetAccount
     timeout: 2s
     path_fields:
-      requestId: request_id
+      accountId: account_id
 ```
 
 | 字段 | 约定 |
@@ -122,7 +117,7 @@ routes:
 
 ### Nacos 配置中心
 
-在 Nacos 中创建 YAML 配置，以 [config/routes.example.yml](config/routes.example.yml) 的完整内容作为初始内容：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 `ledger-dev`。通过 `config/config.yaml` 的 `routes_data_id`、`nacos.group`、`nacos.namespace` 修改这些值；test/prod 对应 `ledger-test` / `ledger-prod` 或实际 namespace ID。
+在 Nacos 中创建 YAML 配置，以填写了有效业务路由的 [config/routes.example.yml](config/routes.example.yml) 作为初始内容（不能发布当前空模板用于启动）：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 `ledger-dev`。通过 `config/config.yaml` 的 `routes_data_id`、`nacos.group`、`nacos.namespace` 修改这些值；test/prod 对应 `ledger-test` / `ledger-prod` 或实际 namespace ID。
 
 ```yaml
 # config/config.yaml
@@ -139,17 +134,17 @@ routes_data_id: "${GATEWAY_ROUTES_DATA_ID:gateway-routes.yml}"
 
 反射先使用 v1，不支持时尝试 v1alpha。获取一个方法时，在同一条反射流内解析依赖，描述缓存于路由快照，请求处理不再访问反射。
 
-后端关闭反射时，可以在项目根目录生成包含依赖的描述文件：
+后端关闭反射时，可在实现账户 RPC 后从项目根目录生成包含依赖的描述文件：
 
 ```bash
 mkdir -p gateway/descriptors
 protoc -I ledger-pb/src/main/proto \
   --include_imports \
-  --descriptor_set_out=gateway/descriptors/platform.pb \
-  ledger/platform/v1/probe.proto
+  --descriptor_set_out=gateway/descriptors/account.pb \
+  ledger/account/v1/account_service.proto
 ```
 
-随后设置 `descriptor_set: descriptors/platform.pb`。启动配置中的 `descriptor_dir` 默认为 `..`，相对于该启动配置所在目录，默认解析到 `gateway/`；路由的 `descriptor_set` 再相对于 `descriptor_dir` 解析，与路由文件所在目录无关。生成物已被忽略，应与协议版本一起分发。文件必须包含所有依赖；Any 自定义消息也需包含在装载的描述集合中。描述上限为 8 MiB，反射最多加载 256 个文件。
+随后设置 `descriptor_set: descriptors/account.pb`。启动配置中的 `descriptor_dir` 默认为 `..`，相对于该启动配置所在目录，默认解析到 `gateway/`；路由的 `descriptor_set` 再相对于 `descriptor_dir` 解析，与路由文件所在目录无关。生成物已被忽略，应与协议版本一起分发。文件必须包含所有依赖；Any 自定义消息也需包含在装载的描述集合中。描述上限为 8 MiB，反射最多加载 256 个文件。
 
 本地描述有效不代表所有上游都实现了方法。滚动发布时，先确保目标实例支持新方法，或通过不同的 Nacos 服务名隔离版本，再发布路由；网关不自行推断实例协议版本。
 
@@ -231,7 +226,7 @@ Java 服务的 Nacos 默认值在本地 YAML 中，也支持 `NACOS_*` 环境变
 | UNIMPLEMENTED / UNAVAILABLE / DEADLINE_EXCEEDED | 501 / 503 / 504 |
 | 其他内部异常 | 500 |
 
-合法 `X-Request-ID` 会原样使用，否则随机生成；标识写入响应头和 gRPC metadata。仅额外转发 `Authorization`、`traceparent`、`tracestate`，不转发 `X-User-ID` 等自报身份字段。诊断 JSON 的 requestId 与 HTTP 请求标识是不同字段。
+合法 `X-Request-ID` 会原样使用，否则随机生成；标识写入响应头和 gRPC metadata。仅额外转发 `Authorization`、`traceparent`、`tracestate`，不转发 `X-User-ID` 等自报身份字段。业务请求体中的标识字段与 HTTP 请求标识独立。
 
 固定 API token 只提供简单访问门槛，不构成身份系统，健康检查不受 token 限制。网关显式禁用 gRPC 自动重试；资金写请求超时后仍可能已执行，幂等与结果查询由后端业务实现。
 
@@ -269,23 +264,6 @@ go vet ./...
 CGO_ENABLED=1 go test -race ./...
 ```
 
-默认测试不需要中间件，测试后端在运行时构造协议，不依赖业务 stub。覆盖启动配置的默认值、环境变量占位符、相对路径、错误配置、TLS/Nacos 参数，以及反射依赖、描述文件、动态方法、参数类型、body 限制、超时/错误、身份头过滤、路由切换、实例移除及恢复。热更新测试还覆盖慢 RPC 和慢请求体期间切换、旧连接释放、等待重载时取消，以及关闭时等待当前和旧快照的请求完成。`TestJavaGatewayHotReload` 默认跳过，普通 `go test ./...` 通过不代表真实 Java 服务与 Nacos 的调用链已验证。
+默认测试不需要中间件，测试后端在运行时构造协议，不依赖业务 stub。覆盖启动配置的默认值、环境变量占位符、相对路径、错误配置、TLS/Nacos 参数，以及反射依赖、描述文件、动态方法、参数类型、body 限制、超时/错误、身份头过滤、路由切换、实例移除及恢复。热更新测试还覆盖慢 RPC 和慢请求体期间切换、旧连接释放、等待重载时取消，以及关闭时等待当前和旧快照的请求完成。
 
-进程级联调当前使用 Unix SIGTERM 关闭临时网关，建议在 Linux/WSL 中运行。先在两个终端启动 Java 服务，并确认它们注册到网关使用的 Nacos namespace/group；端口通过 Nacos 自动发现，无需固定覆盖。Nacos 使用本地 YAML 默认值或部署环境变量：
-
-```bash
-# 终端一：从项目根目录运行。
-java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
-
-# 终端二：从项目根目录运行。
-java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar
-```
-
-项目 Nacos 和上述服务启动后，核对 `gateway/config/config.yaml` 中的 Nacos 配置，在第三个终端进入 `gateway/` 执行：
-
-```bash
-go test -v ./cmd/gateway \
-  -run TestJavaGatewayHotReload -count=1 -timeout=180s -args -java-test
-```
-
-测试启动临时网关，路由发布到随机 Nacos Data ID，后端通过 Nacos 服务发现，动态切换到另一项 Java RPC，发布无效方法后确认旧路由可用。测试结束时删除随机配置并关闭临时网关；Java 服务与中间件由启动者管理。
+当前没有业务 RPC，真实 Java 服务与 Nacos 的端到端调用需在新增接口后联调。

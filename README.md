@@ -1,18 +1,19 @@
 # ledger-core
 
-面向资金账户与模拟证券交易的 Java 后端基础框架。当前提供工程分层、中间件接入和 gRPC 诊断调用链，尚未实现开户、记账、下单等业务。
+面向资金账户与模拟证券交易的 Java 后端基础框架。当前提供工程分层、中间件接入和 gRPC 服务基础配置，尚未实现开户、记账、下单等业务。
 
 ## 文档导航
 
 | 任务 | 文档 |
 | --- | --- |
-| 首次运行、启动服务和调用诊断接口 | 本页“本地启动”和“gRPC 验证” |
+| 首次运行、启动服务和验证 gRPC 服务 | 本页“本地启动”和“gRPC 验证” |
 | 启动 Go 动态 HTTP → gRPC 网关、配置动态路由 | [网关指南](gateway/README.md) |
 | 了解模块依赖、调用链和当前边界 | [架构说明](docs/architecture.md) |
 | 配置数据库、Nacos、Kafka、Redis 或复用已有中间件 | [配置与运行](docs/configuration.md) |
 | 初始化数据库、手动执行 SQL | [数据库 SQL](db/README.md) |
 | 使用 MyBatis-Plus、新增表、Mapper 和事务 | [数据库访问约定](docs/persistence.md) |
 | 修改协议、新增功能、构建验证和排查问题 | [开发与排错](docs/development.md) |
+| 查看按业务领域与版本划分的协议目录 | [协议说明](ledger-pb/README.md) |
 
 ## 技术版本
 
@@ -41,7 +42,7 @@ db/                        # 按服务划分的 SQL，部署前手动执行
 docs/                      # 架构、运行配置、持久层与开发说明
 ```
 
-服务通过 `interfaces.grpc → application → domain` 组织业务，基础设施实现放在 `infrastructure`。当前只有诊断接口及必要配置，业务分层随实际用例添加。禁止跨服务直接访问对方 schema。
+服务通过 `interfaces.grpc → application → domain` 组织业务，基础设施实现放在 `infrastructure`。当前只有必要基础配置，尚无业务 RPC，业务分层随实际用例添加。禁止跨服务直接访问对方 schema。
 
 日常业务开发主要修改两个 `*-service`；每个服务在自己的 POM 中声明中间件依赖。`application.yml` 保留必要启动配置和 Nacos 公共参数，dev 的完整运行配置放在本地 `application-dev.yml`，Nacos 仅用于注册与发现；test/prod 通过对应的 `application-test.yml` / `application-prod.yml` 导入 Nacos 配置，发布参数参考各服务的 `application-dev.yml`，步骤见 [Nacos 配置中心](docs/configuration.md#nacos-配置中心)。Nacos 注册与 MyBatis 插件配置类位于各服务的 `infrastructure.config`。协议维护在 `ledger-pb`，无需单独启动。
 
@@ -76,8 +77,8 @@ java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar
 | 进程 | 默认地址 | 启动顺序 |
 | --- | --- | --- |
 | 账户服务 | gRPC `localhost:8081` | 中间件就绪并完成数据库初始化后启动 |
-| 交易服务 | gRPC `localhost:8082` | 账户服务启动后验证调用链 |
-| Go 网关（可选） | HTTP `localhost:8080` | 两个 Java 服务启动后启动 |
+| 交易服务 | gRPC `localhost:8082` | 中间件就绪并完成数据库初始化后启动 |
+| Go 网关（可选） | HTTP `localhost:8080` | 实现业务 RPC 并发布有效路由后启动 |
 
 表中是 dev 本地配置及 Nacos 发布示例中的默认端口。设置 `GRPC_PORT` 或修改对应 YAML 后，以服务实际监听端口为准。
 
@@ -94,35 +95,20 @@ Java 服务使用 `web-application-type: none`，不启动 HTTP 服务、不提�
 
 ## gRPC 验证
 
-安装 `grpcurl` 后执行以下 Bash 命令。PowerShell 用户也可以使用[网关指南中的 HTTP 验证](gateway/README.md#启动与验证)。
+当前没有业务 RPC，可以在 dev 环境通过反射检查 gRPC 服务是否响应：
 
 ```bash
 grpcurl -plaintext localhost:8081 list
-grpcurl -plaintext -d '{"requestId":"smoke-001"}' \
-  localhost:8081 ledger.platform.v1.AccountProbe/Check
-grpcurl -plaintext -d '{"requestId":"smoke-001"}' \
-  localhost:8082 ledger.platform.v1.TradingProbe/Check
+grpcurl -plaintext localhost:8082 list
 ```
 
-最后一个调用会经 Nacos 查找账户服务，通过真实 gRPC 请求账户服务，返回 `service=trading-service` 和 `downstreamService=account-service`。客户端复用连接、按请求轮询发现的实例，调用超时为 2 秒；无实例时返回 `UNAVAILABLE`，不自动重试。当前连接使用明文，后续在对外部署前增加认证及 TLS。
-
-交易服务的预期响应：
-
-```json
-{
-  "service": "trading-service",
-  "requestId": "smoke-001",
-  "downstreamService": "account-service"
-}
-```
-
-`grpcurl` 是可选工具，未安装时可以通过 Go 网关调用诊断接口，见[网关指南](gateway/README.md)。诊断接口不执行开户、资金变更或证券委托。
+仅列出框架提供的反射、健康检查等服务是正常情况。业务协议按 `ledger/account/v1`、`ledger/trading/v1` 组织，详见[协议说明](ledger-pb/README.md)。
 
 ## Go 动态网关
 
 网关对外提供 HTTP/JSON，对内通过 Nacos 发现 Java gRPC 服务，支持反射/描述文件动态调用与路由热更新。它不需要生成业务 Go stub，不参与 Maven 构建；需要 Go 1.27.4。网关独立读取 [gateway/config/config.yaml](gateway/config/config.yaml)，无需导入 `.env`。启动方式及更新路由见[网关指南](gateway/README.md)。
 
-先将 `gateway/config/config.yaml` 中的 `nacos` 地址、namespace、group 和凭据与 Java 服务对齐，并将 `gateway/config/routes.example.yml` 发布到 Nacos：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 `ledger-dev`。再从项目根目录启动：
+先将 `gateway/config/config.yaml` 中的 `nacos` 地址、namespace、group 和凭据与 Java 服务对齐，待业务 RPC 实现后，在 `gateway/config/routes.example.yml` 中填写至少一条有效路由并发布到 Nacos：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 `ledger-dev`。再从项目根目录启动：
 
 ```bash
 cd gateway
@@ -149,4 +135,4 @@ mvn verify
 
 两个 Java 服务的 gRPC 请求处理均接入虚拟线程执行器，由 `spring.threads.virtual.enabled` 控制；dev 配置已开启，test/prod 发布公共配置时参考同一设置。Netty 网络 I/O 仍使用事件循环线程。
 
-当前 Java 模块未包含自动化测试。运行时调用链按上方“gRPC 验证”检查；Go 网关的测试命令见[网关指南](gateway/README.md)。
+当前 Java 模块未包含自动化测试。服务启动可按上方“gRPC 验证”检查；当前没有业务 RPC，业务调用链需在新增接口后联调。Go 网关的测试命令见[网关指南](gateway/README.md)。

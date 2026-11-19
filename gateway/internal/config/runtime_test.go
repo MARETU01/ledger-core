@@ -93,13 +93,6 @@ func TestRepositoryRuntimeConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	example, err := os.ReadFile("../../config/routes.example.yml")
-	if err != nil {
-		t.Fatalf("route example is missing: %v", err)
-	}
-	if _, err := Parse(example); err != nil {
-		t.Fatalf("route example is invalid: %v", err)
-	}
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

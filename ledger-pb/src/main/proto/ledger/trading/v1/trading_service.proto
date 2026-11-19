@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package ledger.trading.v1;
+
+option java_package = "com.ledger.pb.trading.v1";
+option java_multiple_files = true;
+
+// 交易服务协议入口，后续在此定义 service、rpc 及对应的请求和响应。
+// 复用的订单模型按需拆分到同目录 order.proto。

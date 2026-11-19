@@ -28,11 +28,11 @@ mvn -pl account-service -am package
 4. 在对应服务的 `interfaces.grpc` 中用 `@Service` 注册生成的 `ImplBase` 实现，协议对象转换后交给 application 层处理。
 5. 增加真实 gRPC 调用测试，覆盖成功响应、错误状态和超时等与新增行为有关的场景。
 
-协议新增字段使用新编号，已删除字段的编号及名称用 `reserved` 保留，避免重新分配。当前 `ProbeRequest.request_id` 用于诊断透传；新增资金写接口时，需要单独设计业务请求标识和幂等规则。
+协议新增字段使用新编号，已删除字段的编号及名称用 `reserved` 保留，避免重新分配。新增资金写接口时，需要单独设计业务请求标识和幂等规则。
 
-模块名为 `ledger-pb`，生成的 Java 包为 `com.ledger.pb.platform.v1`；当前 Protobuf package 仍为 `ledger.platform.v1`，因此 gRPC 方法名仍是 `/ledger.platform.v1.AccountProbe/Check` 等。模块或 Java 包改名不要求修改协议 package。
+协议按业务领域和版本组织：`ledger/account/v1` 对应 `ledger.account.v1` 和 Java 包 `com.ledger.pb.account.v1`，交易协议同理。当前只保留两个协议骨架，尚未定义业务 RPC；目录约定见 [协议说明](../ledger-pb/README.md)。模块或 Java 包改名不要求修改 Protobuf package。
 
-调用其他服务时，可以参考 [TradingProbeEndpoint](../trading-service/src/main/java/com/ledger/trading/interfaces/grpc/TradingProbeEndpoint.java) 与 [DiscoveryGrpcChannels](../trading-service/src/main/java/com/ledger/trading/infrastructure/grpc/DiscoveryGrpcChannels.java)。发现客户端由交易服务维护。当前探针使用 blocking stub 和 2 秒 deadline；该值写在代码中，尚未暴露环境变量。
+调用其他服务时，可以复用 [DiscoveryGrpcChannels](../trading-service/src/main/java/com/ledger/trading/infrastructure/grpc/DiscoveryGrpcChannels.java) 获取连接，使用生成的 stub 发起请求，并显式设置 deadline。发现客户端由交易服务维护，目前没有实际业务调用。
 
 每个服务独立声明中间件依赖并维护 `application.yml`。Nacos gRPC 注册与 MyBatis 插件使用各服务 `infrastructure.config` 下的普通 `@Configuration` 类，由应用扫描加载，无需自动配置导入清单。Nacos 注册监听器在 gRPC 启动事件发生时获取注册组件，避免提前判断 Bean 是否存在；未启用 Nacos 注册时跳过处理。修改这两项基础配置时需分别检查两个服务。
 
@@ -53,7 +53,7 @@ Redis 可注入 `StringRedisTemplate`，业务自行约定 key 前缀、序列�
 mvn verify
 ```
 
-当前 Java 模块未包含自动化测试；`mvn verify` 成功表示构建通过，不代表运行时中间件已连通。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查诊断调用链。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
+当前 Java 模块未包含自动化测试；`mvn verify` 成功表示构建通过，不代表运行时中间件已连通。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查 gRPC 服务是否响应；业务调用链在新增接口后联调。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
 
 ## 常见问题
 
@@ -64,8 +64,8 @@ mvn verify
 | 切换到 test/prod 后无法连接 Nacos | 默认地址为 localhost:8848，按实际部署覆盖，并核对所选环境的 namespace、group 和认证 |
 | test/prod 的 Nacos 配置加载失败或数据源缺少 URL | 核对公共和服务专属 Data ID 均已发布且非空；不会回退到 dev 的本地配置 |
 | gRPC 提示 address already in use | 检查旧服务进程；使用当前进程的 `GRPC_PORT` 覆盖监听端口 |
-| TradingProbe 返回 UNAVAILABLE | 确认账户服务已启动且注册成功，双方 namespace/group 一致，实例有 `protocol=grpc` 且地址可达；停止服务后发现视图可能需要时间更新 |
-| gRPC 返回 DEADLINE_EXCEEDED | 检查账户服务地址、网络及耗时；当前下游调用 deadline 为 2 秒 |
+| 下游 RPC 返回 UNAVAILABLE | 确认账户服务已启动且注册成功，双方 namespace/group 一致，实例有 `protocol=grpc` 且地址可达；停止服务后发现视图可能需要时间更新 |
+| gRPC 返回 DEADLINE_EXCEEDED | 检查下游服务地址、网络及耗时，以及调用方设置的 deadline |
 | grpcurl list 失败 | 确认访问的是 Java 服务端口 8081/8082，并使用 `-plaintext`；8848/9848 属于 Nacos |
 | Nacos 登录或连接失败 | 按实际部署区分 API、客户端 gRPC 和控制台端口，核对认证与 TLS；Java 和 Go 网关的连接配置需分别填写 |
 | PostgreSQL relation does not exist | 核对根目录 `db/` 中的 SQL 是否已在目标数据库手动执行，以及 `@TableName` 的 schema/table；MyBatis-Plus 不自动建表 |
@@ -81,14 +81,14 @@ mvn verify
 | 网关提示 field ... not found | 启动配置严格校验字段；对照 `gateway/config/config.yaml` 检查字段名、缩进，并确认没有将路由 YAML 当作启动配置 |
 | 网关找不到路由或证书文件 | 配置中的相对路径以启动配置所在目录为准；`descriptor_set` 以 `descriptor_dir` 为准 |
 
-当前 Java 业务服务没有 HTTP Actuator 端口。不要通过 HTTP 请求 8081/8082 判断服务是否启动；使用 gRPC 探针或启动日志。
+当前 Java 业务服务没有 HTTP Actuator 端口。不要通过 HTTP 请求 8081/8082 判断服务是否启动；使用 grpcurl 反射列表或启动日志。
 
 ## Go 网关开发
 
 网关使用独立 Go Modules，与 Maven 分开构建和测试。进入 `gateway/` 后执行 `go test ./...`、`go vet ./...`，需要并发检测时执行 `CGO_ENABLED=1 go test -race ./...`（需要 C 编译器）。
 
-默认测试使用测试后端，不要求运行 Java 服务或 Nacos。真实调用链测试 `TestJavaGatewayHotReload` 默认跳过，需准备中间件与两个 Java 服务后显式启用，命令见[网关测试](../gateway/README.md#测试)。
+网关测试使用测试后端，不要求运行 Java 服务或 Nacos。当前没有业务 RPC，真实环境调用链需在新增接口后联调。
 
-启动配置在 `gateway/config/config.yaml`，路由示例在 `gateway/config/routes.example.yml`，需先发布到 Nacos 的 `gateway-routes.yml`。网关无需导入 `.env`；在 IDE 中将工作目录设为 `gateway/`，或通过 `-config` 指定启动配置文件。监听、Nacos、TLS 和 token 等启动配置修改后需重启，Nacos 路由规则支持热更新。个人配置可复制为已忽略的 `gateway/config/config.local.yaml`，旧配置中的 `routes_source`、`routes_file` 字段需要删除。
+启动配置在 `gateway/config/config.yaml`，路由模板在 `gateway/config/routes.example.yml`，当前为空；实现业务 RPC 后需填写有效路由，再发布到 Nacos 的 `gateway-routes.yml`。网关无需导入 `.env`；在 IDE 中将工作目录设为 `gateway/`，或通过 `-config` 指定启动配置文件。监听、Nacos、TLS 和 token 等启动配置修改后需重启，Nacos 路由规则支持热更新。个人配置可复制为已忽略的 `gateway/config/config.local.yaml`，旧配置中的 `routes_source`、`routes_file` 字段需要删除。
 
 新增 Java RPC 后，通过路由发布和反射或描述文件加载完成接入；只修改路由无需重编译 Go。进程级联调及配置字段见[网关指南](../gateway/README.md)。网关的 `/readyz` 返回生效 revision；无效更新在日志记录 `route update rejected` 并保留旧配置。
