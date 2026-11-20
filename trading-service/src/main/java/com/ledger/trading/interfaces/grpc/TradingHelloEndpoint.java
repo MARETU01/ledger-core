@@ -1,23 +1,20 @@
 package com.ledger.trading.interfaces.grpc;
 
-import com.ledger.pb.account.v1.AccountServiceGrpc;
+import com.ledger.grpc.client.account.AccountGrpcClient;
 import com.ledger.pb.trading.v1.SayHelloResponse;
 import com.ledger.pb.trading.v1.SayHelloRequest;
 import com.ledger.pb.trading.v1.TradingServiceGrpc;
-import com.ledger.trading.infrastructure.grpc.DiscoveryGrpcChannels;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.TimeUnit;
-
 @Service
 public class TradingHelloEndpoint extends TradingServiceGrpc.TradingServiceImplBase {
-    private final DiscoveryGrpcChannels channels;
+    private final AccountGrpcClient accountClient;
 
-    public TradingHelloEndpoint(DiscoveryGrpcChannels channels) {
-        this.channels = channels;
+    public TradingHelloEndpoint(AccountGrpcClient accountClient) {
+        this.accountClient = accountClient;
     }
 
     @Override
@@ -27,10 +24,8 @@ public class TradingHelloEndpoint extends TradingServiceGrpc.TradingServiceImplB
             var accountRequest = com.ledger.pb.account.v1.SayHelloRequest.newBuilder()
                     .setName(request.getName()).build();
 
-            // 从 Nacos 发现账户实例，复用连接；每次调用最多等待 2 秒。
-            var accountResponse = AccountServiceGrpc.newBlockingStub(channels.select("account-service"))
-                    .withDeadlineAfter(2, TimeUnit.SECONDS)
-                    .sayHello(accountRequest);
+            // 共享客户端负责服务发现、连接复用与可配置的调用超时。
+            var accountResponse = accountClient.sayHello(accountRequest);
 
             observer.onNext(SayHelloResponse.newBuilder()
                     .setMessage(accountResponse.getMessage())

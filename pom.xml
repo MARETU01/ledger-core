@@ -18,7 +18,7 @@
     <name>ledger-core</name>
 
     <modules>
-        <module>ledger-pb</module>
+        <module>ledger-grpc</module>
         <module>account-service</module>
         <module>trading-service</module>
     </modules>
@@ -60,7 +60,7 @@
             <!-- Internal modules -->
             <dependency>
                 <groupId>com.ledger</groupId>
-                <artifactId>ledger-pb</artifactId>
+                <artifactId>ledger-grpc</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

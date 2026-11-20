@@ -16,6 +16,14 @@
 
 Java dev 环境从本地 `application-dev.yml` 读取完整运行配置，Nacos 仅用于注册与发现，不读取配置中心。test/prod 在本地取得 Nacos 连接信息，再读取远端运行配置。Go 网关独立读取启动 YAML，不读取 `.env`；所有环境均使用 Nacos 路由配置和服务发现，启动前需发布网关路由。
 
+## 共享 gRPC 客户端
+
+`ledger-grpc` 默认不启用客户端。交易服务在本地 `application.yml` 开启 `ledger.grpc.client.enabled` 和 `ledger.grpc.client.account.enabled`；账户服务不启用下游客户端。启用不要求下游在线，实际发现与连接在首次调用时发生。
+
+客户端的 `account.service-id` / `trading.service-id` 默认分别为 `account-service` / `trading-service`，`timeout` 默认 `2s`，均位于 `ledger.grpc.client` 前缀下。开发环境可在本地 profile 配置中覆盖；test/prod 可在服务专属 Nacos 配置中增加这些字段。`plaintext` 默认 true；false 启用标准 TLS，需同时配置服务端。变更后重启使用方服务验证，不保证客户端属性即时刷新。
+
+完整字段、按需装配与连接清理规则见[共享客户端指南](../ledger-grpc/README.md)。服务名必须与目标服务的 Nacos 注册名对应，namespace/group 继续使用调用方已有的 Nacos 配置。
+
 ## 环境切换
 
 每个 Java 服务的资源目录包含：

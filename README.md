@@ -8,7 +8,7 @@
 
 | 范围 | 已实现 | 待建设 |
 | --- | --- | --- |
-| Java 服务 | gRPC 服务端、Nacos 注册与发现、虚拟线程执行器 | 账户与交易用例、业务校验、自动化测试 |
+| Java 服务 | gRPC 服务端、共享客户端与连接管理、Nacos 注册与发现、虚拟线程执行器 | 账户与交易用例、业务校验、真实中间件集成测试 |
 | 动态网关 | HTTP/JSON 转换、协议按需加载、服务发现、路由热更新 | 用户身份与权限体系、流量治理 |
 | 数据与消息 | PostgreSQL、MyBatis-Plus、Redis、Kafka 客户端配置 | 业务表、账务规则、业务幂等、可靠事件投递 |
 | 运行交付 | 环境配置、手动 SQL、构建与网关测试命令 | 数据库迁移管理、持续集成、对账与恢复流程 |
@@ -27,7 +27,7 @@
 | 初始化数据库、手动执行 SQL | [数据库 SQL](db/README.md) |
 | 使用 MyBatis-Plus、新增表、Mapper 和事务 | [数据库访问约定](docs/persistence.md) |
 | 修改协议、新增功能、构建验证和排查问题 | [开发与排错](docs/development.md) |
-| 查看按业务领域与版本划分的协议目录 | [协议说明](ledger-pb/README.md) |
+| 使用共享客户端、配置调用策略或维护协议 | [gRPC 模块指南](ledger-grpc/README.md) |
 
 ## 技术版本
 
@@ -46,7 +46,7 @@ Java 依赖版本以根 [pom.xml](pom.xml) 及其 BOM 为准，Go 版本以 [gat
 ## 工程结构
 
 ```text
-ledger-pb/                 # Protobuf 协议及构建时生成的 Java stub
+ledger-grpc/               # 协议、生成的 stub、共享客户端与服务发现连接管理
 account-service/           # 账户服务，gRPC 8081，独立 account schema
 trading-service/           # 交易服务，gRPC 8082，独立 trading schema
 gateway/                   # Go 动态网关，独立 Go Modules 构建
@@ -58,7 +58,7 @@ docs/                      # 架构、运行配置、持久层与开发说明
 
 服务通过 `interfaces.grpc → application → domain` 组织业务，基础设施实现放在 `infrastructure`。当前包含必要基础配置和 Hello 示例接口，业务分层随实际用例添加。禁止跨服务直接访问对方 schema。
 
-日常业务开发主要修改两个 `*-service`，协议维护在 `ledger-pb`。Java 默认使用 dev 本地配置；test/prod 从 Nacos 导入运行配置。文件职责、环境切换及发布步骤统一见[配置与运行](docs/configuration.md)。
+日常业务开发主要修改两个 `*-service`，协议和共享客户端维护在 `ledger-grpc`。交易服务已按需启用账户客户端；账户服务默认不创建下游客户端。Java 默认使用 dev 本地配置；test/prod 从 Nacos 导入运行配置。文件职责、环境切换及发布步骤统一见[配置与运行](docs/configuration.md)。
 
 ## 本地启动
 
@@ -116,7 +116,7 @@ grpcurl -plaintext localhost:8081 list
 grpcurl -plaintext localhost:8082 list
 ```
 
-业务协议按 `ledger/account/v1`、`ledger/trading/v1` 组织，详见[协议说明](ledger-pb/README.md)。
+业务协议按 `ledger/account/v1`、`ledger/trading/v1` 组织，详见[协议说明](ledger-grpc/README.md)。
 
 ## Go 动态网关
 
@@ -151,6 +151,6 @@ go -C gateway test ./...
 
 两个 Java 服务的 gRPC 请求处理均接入虚拟线程执行器，由 `spring.threads.virtual.enabled` 控制；dev 配置已开启，test/prod 发布公共配置时参考同一设置。Netty 网络 I/O 仍使用事件循环线程。
 
-当前 Java 模块未包含自动化测试。服务启动可按上方“gRPC 验证”检查；Go 网关的测试命令与 HTTP 调用示例见[网关指南](gateway/README.md)。
+`mvn verify` 会执行共享 gRPC 模块和交易服务的自动化测试，使用本地测试后端与替代的发现客户端，不需要真实中间件。服务启动可按上方“gRPC 验证”检查；Go 网关的测试命令与 HTTP 调用示例见[网关指南](gateway/README.md)。
 
-构建通过仅表示编译与打包完成；网关测试使用测试后端，不验证真实 Nacos 或 Java 服务。Hello 联调可验证实际调用链，但不覆盖数据库读写、消息收发或资金正确性。
+构建和测试通过不表示真实中间件已连通；网关测试使用测试后端，不验证真实 Nacos 或 Java 服务。实际接口联调也不覆盖数据库读写、消息收发或资金正确性。

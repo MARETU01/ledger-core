@@ -15,3 +15,11 @@ spring:
           protocol: grpc
       config:
         group: ${NACOS_GROUP:LEDGER_GROUP}
+
+# 仅启用实际依赖的下游客户端；连接在第一次调用时创建。
+ledger:
+  grpc:
+    client:
+      enabled: true
+      account:
+        enabled: true

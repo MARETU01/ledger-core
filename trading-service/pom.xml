@@ -14,8 +14,13 @@
 
     <dependencies>
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>com.ledger</groupId>
-            <artifactId>ledger-pb</artifactId>
+            <artifactId>ledger-grpc</artifactId>
         </dependency>
 
         <!-- gRPC and application infrastructure -->

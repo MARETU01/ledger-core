@@ -91,7 +91,7 @@ GET 不接受非空白 body。POST 只接受 JSON body，不接受 Query 参数�
 
 ```bash
 mkdir -p gateway/descriptors
-protoc -I ledger-pb/src/main/proto \
+protoc -I ledger-grpc/src/main/proto \
   --include_imports \
   --descriptor_set_out=gateway/descriptors/account.pb \
   ledger/account/v1/account_service.proto

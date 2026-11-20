@@ -15,7 +15,7 @@
     <dependencies>
         <dependency>
             <groupId>com.ledger</groupId>
-            <artifactId>ledger-pb</artifactId>
+            <artifactId>ledger-grpc</artifactId>
         </dependency>
 
         <!-- gRPC and application infrastructure -->

@@ -6,7 +6,7 @@
 
 ## 构建与启动
 
-从 Maven 根 POM 导入 IDE 项目，Project SDK 与 Maven Runner 都选择 JDK 25。生成的 Protobuf Java 文件位于 `ledger-pb/target`，由构建维护，不提交到 Git。
+从 Maven 根 POM 导入 IDE 项目，Project SDK 与 Maven Runner 都选择 JDK 25。生成的 Protobuf Java 文件位于 `ledger-grpc/target`，由构建维护，不提交到 Git。
 
 ```bash
 java -version
@@ -24,17 +24,17 @@ mvn -pl account-service -am package
 
 ## 修改 gRPC 协议
 
-1. 在 `ledger-pb/src/main/proto/ledger/<业务>/v1/` 中维护 `.proto`。
+1. 在 `ledger-grpc/src/main/proto/ledger/<业务>/v1/` 中维护 `.proto`。
 2. 定义 `package`、`java_package` 和 `java_multiple_files`，按服务职责设计 RPC。
-3. 执行 `mvn -pl ledger-pb -am compile` 生成消息类与 stub，不手改 target 中的生成文件。
+3. 执行 `mvn -pl ledger-grpc -am compile` 生成消息类与 stub，不手改 target 中的生成文件。
 4. 在对应服务的 `interfaces.grpc` 中用 `@Service` 注册生成的 `ImplBase` 实现，协议对象转换后交给 application 层处理。
 5. 增加真实 gRPC 调用测试，覆盖成功响应、错误状态和超时等与新增行为有关的场景。
 
 协议新增字段使用新编号，已删除字段的编号及名称用 `reserved` 保留，避免重新分配。新增资金写接口时，需要单独设计业务请求标识和幂等规则。
 
-协议按业务领域和版本组织：`ledger/account/v1` 对应 `ledger.account.v1` 和 Java 包 `com.ledger.pb.account.v1`，交易协议同理。账户和交易协议分别提供 SayHello 示例；目录约定见 [协议说明](../ledger-pb/README.md)。模块或 Java 包改名不要求修改 Protobuf package。
+协议按业务领域和版本组织：`ledger/account/v1` 对应 `ledger.account.v1` 和 Java 包 `com.ledger.pb.account.v1`，交易协议同理。账户和交易协议分别提供 SayHello 示例；目录约定见 [协议说明](../ledger-grpc/README.md)。模块或 Java 包改名不要求修改 Protobuf package。
 
-调用其他服务时，可以复用 [DiscoveryGrpcChannels](../trading-service/src/main/java/com/ledger/trading/infrastructure/grpc/DiscoveryGrpcChannels.java) 获取连接，使用生成的 stub 发起请求，并显式设置 deadline。发现客户端由交易服务维护，当前 [TradingHelloEndpoint](../trading-service/src/main/java/com/ledger/trading/interfaces/grpc/TradingHelloEndpoint.java) 展示了具体用法。
+调用其他服务时，在使用方配置中启用相应客户端，注入共享模块的 `AccountGrpcClient` 或 `TradingGrpcClient`。默认超时为 2 秒，支持配置与单次覆盖；服务发现和连接管理统一位于 `ledger-grpc`。配置和新增 RPC 的方法见[共享客户端指南](../ledger-grpc/README.md)，当前 [TradingHelloEndpoint](../trading-service/src/main/java/com/ledger/trading/interfaces/grpc/TradingHelloEndpoint.java) 展示了账户客户端的用法。
 
 每个服务独立声明中间件依赖并维护 `application.yml`。Nacos gRPC 注册与 MyBatis 插件使用各服务 `infrastructure.config` 下的普通 `@Configuration` 类，由应用扫描加载，无需自动配置导入清单。Nacos 注册监听器在 gRPC 启动事件发生时获取注册组件，避免提前判断 Bean 是否存在；未启用 Nacos 注册时跳过处理。修改这两项基础配置时需分别检查两个服务。
 
@@ -52,7 +52,7 @@ mvn -pl account-service -am package
 4. 如需业务事件，明确投递恢复、消费去重及乱序处理；跨服务流程记录可恢复的中间状态。
 5. 增加与行为相关的测试，至少覆盖成功、非法状态、重复请求、并发竞争及事务回滚；涉及 RPC 或事件时补充超时与恢复场景。
 
-当前 Java 测试基础设施仍需随首个业务用例建立。数据库访问文档中的示例实体和表仅用于说明用法，不能直接作为资金模型。
+当前已有共享客户端与跨服务接口测试，首个业务用例仍需补充数据库并发、事务和幂等测试。数据库访问文档中的示例实体和表仅用于说明用法，不能直接作为资金模型。
 
 ## Kafka 与 Redis 扩展入口
 
@@ -67,7 +67,7 @@ Redis 可注入 `StringRedisTemplate`，业务自行约定 key 前缀、序列�
 mvn verify
 ```
 
-当前 Java 模块未包含自动化测试；`mvn verify` 成功表示构建通过，不代表运行时中间件已连通。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查 gRPC 服务是否响应。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
+`mvn verify` 执行共享 gRPC 模块与交易服务的自动化测试，覆盖客户端装配、发现和连接生命周期、本地真实 RPC 调用、超时及错误传播；无需真实中间件。通过不代表运行时中间件已连通。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查 gRPC 服务是否响应。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
 
 ## 常见问题
 
@@ -79,6 +79,7 @@ mvn verify
 | test/prod 的 Nacos 配置加载失败或数据源缺少 URL | 核对公共和服务专属 Data ID 均已发布且非空；不会回退到 dev 的本地配置 |
 | gRPC 提示 address already in use | 检查旧服务进程；使用当前进程的 `GRPC_PORT` 覆盖监听端口 |
 | 下游 RPC 返回 UNAVAILABLE | 确认账户服务已启动且注册成功，双方 namespace/group 一致，实例有 `protocol=grpc` 且地址可达；停止服务后发现视图可能需要时间更新 |
+| 共享客户端 Bean 不存在 | 检查 `ledger.grpc.client.enabled=true` 及对应 `account.enabled` / `trading.enabled` 开关；重新导入 Maven 项目 |
 | gRPC 返回 DEADLINE_EXCEEDED | 检查下游服务地址、网络及耗时，以及调用方设置的 deadline |
 | grpcurl list 失败 | 确认访问的是 Java 服务端口 8081/8082，并使用 `-plaintext`；8848/9848 属于 Nacos |
 | Nacos 登录或连接失败 | 按实际部署区分 API、客户端 gRPC 和控制台端口，核对认证与 TLS；Java 和 Go 网关的连接配置需分别填写 |
