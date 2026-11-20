@@ -20,13 +20,19 @@ mvn clean verify
 mvn -pl account-service -am package
 ```
 
-完整启动流程见首页。dev 只需创建 Nacos 注册 namespace 并调整本地 `application-dev.yml`，无需发布配置；test/prod 先按 [Nacos 发布说明](configuration.md#nacos-配置中心)发布运行配置。IDE 可直接运行 `AccountApplication` 或 `TradingApplication`，无需 `.env`。默认 Nacos 地址为 `localhost:8848`、Group 为 `LEDGER_GROUP`，namespace 随 profile 选择；部署时按需覆盖。默认环境为 dev，可用 Active profiles、`SPRING_PROFILES_ACTIVE` 或 `--spring.profiles.active=test` / `prod` 切换。公共配置通过 `spring.profiles.default: dev` 设置默认环境，Spring Boot 自动加载对应的 `application-{profile}.yml`，无需手动导入本地环境文件或添加 bootstrap starter。停服务使用 `Ctrl+C`，触发应用关闭及 Nacos 注销。
+IDE 可直接运行 `AccountApplication` 或 `TradingApplication`，默认使用 dev。完整启动步骤见[项目首页](../README.md#本地启动)，环境切换及 Nacos 发布见[配置与运行](configuration.md)。停止服务使用 `Ctrl+C`，触发应用关闭及 Nacos 注销。
 
 ## Lombok 与注解处理
 
 三个 Java 模块均将 Lombok 声明为 `provided`、`optional` 依赖，版本由 Spring Boot 管理。根 POM 统一配置编译器的 `annotationProcessorPaths`，适用于当前 JDK 25；服务可执行 JAR 排除 Lombok。配置方式参考 [Lombok Maven 指南](https://projectlombok.org/setup/maven)。
 
-`GrpcClientProperties` 使用 `@Getter` / `@Setter` 生成访问方法，保留嵌套配置对象、默认值和校验逻辑；纯字段赋值的构造器使用 `@RequiredArgsConstructor`。包含参数校验或父类初始化的构造器继续显式编写。
+| 用法 | 当前位置 | 约定 |
+| --- | --- | --- |
+| `@Getter` / `@Setter` | `GrpcClientProperties` 及嵌套 `Endpoint` | 保持 JavaBean 配置绑定；final 嵌套对象仅生成 getter |
+| `@RequiredArgsConstructor` | 交易 Endpoint、两个服务的 Nacos 注册配置 | 生成 final 依赖的构造器，继续使用构造器注入 |
+| 显式构造器 | `GrpcClientSupport`、连接管理器和客户端 | 保留参数校验、默认对象初始化及父类构造调用 |
+
+服务端使用 `org.springframework.grpc.server.service.GrpcService` 标记；共享客户端通过条件自动装配创建。当前尚未接入 `@ImportGrpcClients` 或字段注入式 `@GrpcClient`。
 
 修改依赖后重新导入 Maven 项目。若命令行编译正常而 IDE 提示 getter 或构造器不存在，检查 IDE 的 Lombok 支持和注解处理设置。
 
@@ -36,7 +42,8 @@ mvn -pl account-service -am package
 2. 定义 `package`、`java_package` 和 `java_multiple_files`，按服务职责设计 RPC。
 3. 执行 `mvn -pl ledger-grpc -am compile` 生成消息类与 stub，不手改 target 中的生成文件。
 4. 在对应服务的 `interfaces.grpc` 中用 `@GrpcService`（`org.springframework.grpc.server.service.GrpcService`）注册生成的 `ImplBase` 实现，协议对象转换后交给 application 层处理。
-5. 增加真实 gRPC 调用测试，覆盖成功响应、错误状态和超时等与新增行为有关的场景。
+5. 如需供 Java 服务调用，在对应共享客户端增加方法，复用 `GrpcClientSupport.invoke` 的超时策略。
+6. 构建后验证实际调用的成功响应、错误状态和超时，验证方式见下方“构建与运行验证”。
 
 协议新增字段使用新编号，已删除字段的编号及名称用 `reserved` 保留，避免重新分配。新增资金写接口时，需要单独设计业务请求标识和幂等规则。
 
@@ -58,9 +65,9 @@ mvn -pl account-service -am package
 2. 设计表约束和本地事务，将余额、冻结、流水与幂等记录等需要原子更新的数据放入同一事务边界。
 3. 定义稳定的业务操作标识、重复提交行为及结果查询方式；请求超时后也要能够确认执行结果。
 4. 如需业务事件，明确投递恢复、消费去重及乱序处理；跨服务流程记录可恢复的中间状态。
-5. 增加与行为相关的测试，至少覆盖成功、非法状态、重复请求、并发竞争及事务回滚；涉及 RPC 或事件时补充超时与恢复场景。
+5. 定义并验证成功、非法状态、重复请求、并发竞争及事务回滚；涉及 RPC 或事件时补充超时与恢复场景。
 
-当前已有共享客户端与跨服务接口测试，首个业务用例仍需补充数据库并发、事务和幂等测试。数据库访问文档中的示例实体和表仅用于说明用法，不能直接作为资金模型。
+后续业务的自动化验证属于[架构演进路线](roadmap.md)中的建设项。数据库访问文档中的示例实体和表仅用于说明用法，不能直接作为资金模型。
 
 ## Kafka 与 Redis 扩展入口
 
@@ -70,12 +77,16 @@ Redis 可注入 `StringRedisTemplate`，业务自行约定 key 前缀、序列�
 
 ## 构建与运行验证
 
-```bash
-# 编译、打包 Java 模块，无需运行中间件。
-mvn verify
-```
+当前 Java 模块没有 `src/test` 测试代码或 `spring-boot-starter-test` 依赖，也未配置跳过测试的开关。验证分为以下几类：
 
-`mvn verify` 执行共享 gRPC 模块与交易服务的自动化测试，覆盖客户端装配、发现和连接生命周期、本地真实 RPC 调用、超时及错误传播；无需真实中间件。通过不代表运行时中间件已连通。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查 gRPC 服务是否响应。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
+| 验证 | 命令或入口 | 范围 |
+| --- | --- | --- |
+| Java 编译打包 | 根目录执行 `mvn verify`；改名或删除类后执行 `mvn clean verify` | 生成协议、编译并打包，不执行 Java 自动化测试，无需启动中间件 |
+| gRPC 服务与调用链 | 启动服务后按[首页说明](../README.md#grpc-验证)调用 | 反射列表检查单个服务；调用交易接口进一步检查交易到账户的发现与调用 |
+| HTTP 网关联调 | 按[网关指南](../gateway/README.md#启动与验证)调用 | 远端服务映射、协议加载、HTTP 到 gRPC 的转换 |
+| Go 自动化测试 | 根目录执行 `go -C gateway test ./...` | 使用测试后端，不验证真实 Nacos 或 Java 服务 |
+
+构建成功不表示中间件已连通。现有接口不访问存储，调用成功也不能证明数据库读写、消息收发或资金一致性。`application-test.yml` 属于运行环境配置，继续保留。
 
 ## 常见问题
 

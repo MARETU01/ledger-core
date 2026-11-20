@@ -8,12 +8,12 @@
 
 | 范围 | 已实现 | 待建设 |
 | --- | --- | --- |
-| Java 服务 | gRPC 服务端、共享客户端与连接管理、Nacos 注册与发现、虚拟线程执行器 | 账户与交易用例、业务校验、真实中间件集成测试 |
+| Java 服务 | gRPC 服务端、共享客户端与连接管理、Nacos 注册与发现、虚拟线程执行器 | 账户与交易用例、业务校验、自动化测试 |
 | 动态网关 | HTTP/JSON 转换、协议按需加载、服务发现、路由热更新 | 用户身份与权限体系、流量治理 |
 | 数据与消息 | PostgreSQL、MyBatis-Plus、Redis、Kafka 客户端配置 | 业务表、账务规则、业务幂等、可靠事件投递 |
 | 运行交付 | 环境配置、手动 SQL、构建与网关测试命令 | 数据库迁移管理、持续集成、对账与恢复流程 |
 
-当前架构及约束见[架构说明](docs/architecture.md)；面向业务落地和生产运行的建议见[架构演进路线](docs/roadmap.md)。路线中的能力均需后续实现与验证。
+Java 模块当前没有自动化测试及测试依赖；Go 网关保留独立测试。当前架构及约束见[架构说明](docs/architecture.md)，后续建设顺序见[架构演进路线](docs/roadmap.md)。
 
 ## 文档导航
 
@@ -63,11 +63,15 @@ docs/                      # 架构、运行配置、持久层与开发说明
 
 ## 本地启动
 
-需要 JDK 25、本地 Maven 3.9+，以及可访问的 PostgreSQL、Nacos、Kafka 和 Redis；Go 网关可选。开发环境先准备中间件，在 Nacos 创建 `ledger-dev` namespace，默认注册中心地址为 `localhost:8848`、Group 为 `LEDGER_GROUP`，无需 `.env` 文件，按实际环境调整两个服务的 `application-dev.yml`。dev 无需发布 Nacos 配置；test/prod 则需按 [Nacos 发布说明](docs/configuration.md#nacos-配置中心)发布公共、账户和交易配置。以下命令从项目根目录运行，首次构建需要下载依赖。
+准备 JDK 25、Maven 3.9+ 和运行环境提供的中间件；启动 Go 网关还需 Go 1.27.4。仅编译打包无需启动中间件，首次构建需要下载依赖。
 
-启动服务前需完成数据库初始化：按[数据库 SQL 说明](db/README.md)执行 `db/account/001_create_schema.sql` 和 `db/trading/001_create_schema.sql`。后续表结构变更也需手动执行对应 SQL，服务启动时不自动初始化数据库。
+启动前完成以下准备：
 
-Java 服务默认使用 `dev`，namespace ID 为 `ledger-dev`。测试或生产环境通过 `--spring.profiles.active=test` / `prod` 或 `SPRING_PROFILES_ACTIVE` 切换；完整规则见[环境切换](docs/configuration.md#环境切换)。
+1. 创建 Nacos namespace，ID 为 `ledger-dev`；默认地址 `localhost:8848`，Group 为 `LEDGER_GROUP`。
+2. 核对两个服务的 `application-dev.yml`，填写实际数据库、Nacos、Redis 和 Kafka 参数，无需 `.env`。
+3. 按[数据库 SQL](db/README.md)执行两份 `001_create_schema.sql`；服务不会自动建 schema 或表。
+
+Java 默认使用 dev 本地配置，Nacos 只负责注册与发现。test/prod 的环境切换和远端配置发布步骤见[配置与运行](docs/configuration.md#环境切换)。`application-test.yml` 是测试环境运行配置，与自动化测试代码无关。
 
 ### 启动服务
 
@@ -117,11 +121,19 @@ grpcurl -plaintext localhost:8081 list
 grpcurl -plaintext localhost:8082 list
 ```
 
+检查交易到账户的实际调用链，可从 PowerShell 或 Bash 执行：
+
+```bash
+grpcurl -plaintext -d '{}' localhost:8082 ledger.trading.v1.TradingService/SayHello
+```
+
+默认请求返回 `Hello, World!`，响应中的 `service` 为 `trading-service`、`downstreamService` 为 `account-service`。仅列出反射接口不能证明下游调用成功。
+
 业务协议按 `ledger/account/v1`、`ledger/trading/v1` 组织，详见[协议说明](ledger-grpc/README.md)。
 
 ## Go 动态网关
 
-网关对外提供 HTTP/JSON，对内通过 Nacos 发现 Java gRPC 服务，支持反射/描述文件动态调用与路由热更新。它不需要生成业务 Go stub，不参与 Maven 构建；需要 Go 1.27.4。网关独立读取 [gateway/config/config.yaml](gateway/config/config.yaml)，无需导入 `.env`。启动方式及更新路由见[网关指南](gateway/README.md)。
+网关对外提供 HTTP/JSON，通过 Nacos 发现 Java gRPC 服务，支持协议按需加载和路由热更新；使用独立 Go Modules 构建。
 
 先将 `gateway/config/config.yaml` 中的 `nacos` 地址、namespace、group 和凭据与 Java 服务对齐，将服务映射示例 `gateway/config/routes.example.yml` 发布到 Nacos：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 `ledger-dev`。再从项目根目录启动：
 
@@ -130,16 +142,11 @@ cd gateway
 go run ./cmd/gateway
 ```
 
-使用其他配置文件时运行 `go run ./cmd/gateway -config config/config.local.yaml`。配置内相对路径以配置文件所在目录为基准。启动配置修改后重启网关；服务映射支持热更新，协议在首次请求时加载，启动不依赖 Java 服务在线。启动 YAML 支持 `${变量名:默认值}` 环境变量占位符，默认配置已声明 `GATEWAY_*` 和 `NACOS_*` 变量。
+启动配置、HTTP 调用、TLS、环境变量和热更新规则统一见[网关指南](gateway/README.md)。
 
 ## 中间件与配置
 
-- PostgreSQL：MyBatis-Plus + Spring JDBC；SQL 集中在根目录 `db/`，按服务划分并手动执行，服务启动时不自动建 schema 或表。MyBatis-Plus 提供 BaseMapper、条件构造器、PostgreSQL 分页（单页上限 500）及 `@Version` 乐观锁，使用方法见[数据库访问约定](docs/persistence.md)。
-- Kafka：预置 `KafkaTemplate` 和消费者工厂，生产者开启幂等及 `acks=all`，消费者关闭自动提交。当前不创建业务 topic，不启动业务监听器；生产者幂等不等于业务端到端幂等。
-- Redis：预置 `StringRedisTemplate`；尚未缓存业务数据。
-- Nacos：dev 仅使用注册与发现，配置中心已关闭。test/prod 先读取 `LEDGER_GROUP` 下的 `ledger-infrastructure.yml`，再读取自身的 `account-service.yml` / `trading-service.yml`，需在启动前发布。环境 namespace 默认分别为 `ledger-dev`、`ledger-test`、`ledger-prod`。
-
-接入已有中间件时，按[配置与运行](docs/configuration.md#复用已有中间件)填写地址、认证及 TLS 配置。
+PostgreSQL、Redis、Kafka 和 Nacos 均由运行环境管理。连接参数与各环境配置来源见[配置与运行](docs/configuration.md)，数据库 CRUD、分页、乐观锁和事务约定见[数据库访问约定](docs/persistence.md)。当前没有业务表、Kafka 业务 topic 或业务缓存。
 
 ## 构建验证
 
@@ -150,8 +157,4 @@ mvn verify
 go -C gateway test ./...
 ```
 
-两个 Java 服务的 gRPC 请求处理均接入虚拟线程执行器，由 `spring.threads.virtual.enabled` 控制；dev 配置已开启，test/prod 发布公共配置时参考同一设置。Netty 网络 I/O 仍使用事件循环线程。
-
-`mvn verify` 会执行共享 gRPC 模块和交易服务的自动化测试，使用本地测试后端与替代的发现客户端，不需要真实中间件。服务启动可按上方“gRPC 验证”检查；Go 网关的测试命令与 HTTP 调用示例见[网关指南](gateway/README.md)。
-
-构建和测试通过不表示真实中间件已连通；网关测试使用测试后端，不验证真实 Nacos 或 Java 服务。实际接口联调也不覆盖数据库读写、消息收发或资金正确性。
+Java 构建用于验证编译与打包，Go 测试使用测试后端；真实服务发现和跨服务调用按上方“gRPC 验证”联调。验证范围及排查步骤见[开发与排错](docs/development.md#构建与运行验证)。

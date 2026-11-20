@@ -6,11 +6,11 @@
 
 | 文件或来源 | 作用 |
 | --- | --- |
-| [账户 application.yml](../account-service/src/main/resources/application.yml) / [交易 application.yml](../trading-service/src/main/resources/application.yml) | 服务名、默认 dev、非 HTTP 启动方式和 Nacos 公共配置 |
+| [账户 application.yml](../account-service/src/main/resources/application.yml) / [交易 application.yml](../trading-service/src/main/resources/application.yml) | 服务名、默认 dev、非 HTTP 启动方式、Nacos 公共配置，以及交易服务的下游客户端启用项 |
 | [账户 application-dev.yml](../account-service/src/main/resources/application-dev.yml) / [交易 application-dev.yml](../trading-service/src/main/resources/application-dev.yml) | 完整的本地开发配置，也是准备 test/prod 运行参数的参考；Nacos 仅用于注册与发现，配置中心关闭 |
 | 各服务的 `application-test.yml` / `application-prod.yml` | 环境对应的 Nacos 地址、namespace 及远端配置导入 |
 | Nacos 的 `ledger-infrastructure.yml` | 数据库、Redis、Kafka、连接池、MyBatis、日志等公共运行配置 |
-| Nacos 的 `account-service.yml` / `trading-service.yml` | 各服务的 gRPC 端口及公共配置覆盖项 |
+| Nacos 的 `account-service.yml` / `trading-service.yml` | 各服务的 gRPC 端口、共享客户端参数及公共配置覆盖项 |
 | [gateway/config/config.yaml](../gateway/config/config.yaml) | Go 网关启动配置，独立于 Java 与 Nacos 运行配置 |
 | [gateway/config/routes.example.yml](../gateway/config/routes.example.yml) | 网关路由示例，需发布到 Nacos 的 `gateway-routes.yml`，运行时不读取此文件 |
 
@@ -23,6 +23,8 @@ Java dev 环境从本地 `application-dev.yml` 读取完整运行配置，Nacos 
 客户端的 `account.service-id` / `trading.service-id` 默认分别为 `account-service` / `trading-service`，`timeout` 默认 `2s`，均位于 `ledger.grpc.client` 前缀下。开发环境可在本地 profile 配置中覆盖；test/prod 可在服务专属 Nacos 配置中增加这些字段。`plaintext` 默认 true；false 启用标准 TLS，需同时配置服务端。变更后重启使用方服务验证，不保证客户端属性即时刷新。
 
 完整字段、按需装配与连接清理规则见[共享客户端指南](../ledger-grpc/README.md)。服务名必须与目标服务的 Nacos 注册名对应，namespace/group 继续使用调用方已有的 Nacos 配置。
+
+客户端启用项位于本地 `application.yml`，因此交易服务在 dev/test/prod 中默认都会启用账户客户端。环境配置可覆盖该开关；关闭前需同时调整依赖该客户端的业务组件，当前 `TradingHelloEndpoint` 必须注入账户客户端。
 
 ## 环境切换
 

@@ -1,5 +1,7 @@
 # 共享 gRPC 协议与客户端
 
+[返回项目首页](../README.md) · [架构说明](../docs/architecture.md) · [开发与排错](../docs/development.md)
+
 `ledger-grpc` 是项目内部共享的通信库，不单独部署。包含版本化 Protobuf 协议、构建生成的消息与 Stub、账户和交易客户端，以及基于 Spring Cloud `DiscoveryClient` 的服务发现、连接管理和 Spring Boot 自动装配。
 
 Nacos 实现及连接参数由使用方提供；本模块不引入 Nacos starter、数据库、Redis 或 Kafka。客户端默认关闭，单纯依赖协议不会创建客户端或连接。服务端 gRPC 注册配置仍由各服务维护。
@@ -36,26 +38,45 @@ ledger:
         timeout: 2s
 ```
 
-注入 `AccountGrpcClient` 后调用：
+在业务服务的组件扫描包内，通过构造器注入 `AccountGrpcClient`。例如下面的调用类使用 Lombok 生成构造器：
 
 ```java
-var response = accountClient.sayHello(request);
-// 单次覆盖超时，不改变其他调用的默认值。
-var responseWithTimeout = accountClient.sayHello(request, Duration.ofSeconds(1));
+import com.ledger.grpc.client.account.AccountGrpcClient;
+import com.ledger.pb.account.v1.SayHelloRequest;
+import com.ledger.pb.account.v1.SayHelloResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+@Service
+@RequiredArgsConstructor
+public class AccountCaller {
+    private final AccountGrpcClient accountClient;
+
+    public SayHelloResponse sayHello(String name) {
+        var request = SayHelloRequest.newBuilder().setName(name).build();
+        return accountClient.sayHello(request);
+    }
+}
 ```
+
+需要单次覆盖超时时，调用 `accountClient.sayHello(request, Duration.ofSeconds(1))`，不会改变其他调用的默认值。现有交易入口见 [TradingHelloEndpoint](../trading-service/src/main/java/com/ledger/trading/interfaces/grpc/TradingHelloEndpoint.java)。
 
 调用交易服务时开启 `ledger.grpc.client.trading.enabled=true`，注入 `TradingGrpcClient`；其 `service-id` 默认 `trading-service`，`timeout` 默认 `2s`。两个客户端各自按开关装配，支持使用方声明同类型 Bean 覆盖默认实现。当前两个客户端仅封装已有的 SayHello RPC，后续 RPC 随协议新增方法。
 
-| 配置 | 默认值 | 作用 |
+以下字段均位于 `ledger.grpc.client` 下：
+
+| 字段 | 默认值 | 作用 |
 | --- | --- | --- |
-| `ledger.grpc.client.enabled` | false | 是否启用共享客户端自动装配 |
-| `ledger.grpc.client.account.enabled` / `trading.enabled` | false | 是否创建对应客户端 |
-| `ledger.grpc.client.account.service-id` / `trading.service-id` | account-service / trading-service | Spring Cloud 发现的服务名 |
-| `ledger.grpc.client.account.timeout` / `trading.timeout` | 2s | 每次 RPC 的默认时间预算，必须大于零 |
-| `ledger.grpc.client.plaintext` | true | 开发环境明文；false 使用 gRPC 标准 TLS 和默认信任配置 |
-| `ledger.grpc.client.shutdown-timeout` | 3s | 所有共享连接关闭时的总等待预算，必须大于零 |
+| `enabled` | false | 是否启用共享客户端自动装配 |
+| `account.enabled` / `trading.enabled` | false | 是否创建对应客户端 |
+| `account.service-id` / `trading.service-id` | account-service / trading-service | Spring Cloud 发现的服务名，启用的客户端不可为空白 |
+| `account.timeout` / `trading.timeout` | 2s | 每次 RPC 的默认时间预算，必须大于零 |
+| `plaintext` | true | 开发环境明文；false 使用 gRPC 标准 TLS 和默认信任配置 |
+| `shutdown-timeout` | 3s | 所有共享连接关闭时的总等待预算，必须大于零 |
 
 交易服务已在自身 `application.yml` 启用账户客户端；账户服务默认不启用下游客户端。超时、服务名和传输配置可由使用方环境配置覆盖。启用 TLS 时需同时配置服务端 TLS，当前不提供自定义 CA、mTLS 或凭据拦截器的自动装配。
+
+`GrpcClientProperties` 通过 `@ConfigurationProperties` 绑定属性，Lombok 的 `@Getter` / `@Setter` 生成访问方法。客户端与连接管理器在构造时校验必要参数；未启用的客户端不会创建。属性变更后重启使用方服务验证，配置来源见[配置与运行](../docs/configuration.md#共享-grpc-客户端)。
 
 ## 服务发现与连接生命周期
 
@@ -94,12 +115,19 @@ RPC 请求和响应统一使用 `<方法名>Request`、`<方法名>Response`，�
 
 协议新增字段使用新编号；删除字段时通过 `reserved` 保留原编号和名称。对外与内部 RPC 按 protobuf service 分开组织，当前网关会对已配置 service 中的全部 unary 方法开放 POST。滚动发布时需验证新旧协议兼容及网关缓存刷新行为，详见[网关指南](../gateway/README.md#协议缓存发现与热更新)。
 
-模块目录和 Maven artifact 已统一为 `ledger-grpc`，生成 Java 包仍为 `com.ledger.pb.*`，Protobuf package、RPC 路径与网关服务映射保持兼容。IDE 需重新导入根 Maven 项目；其他仓库中的使用方需要更新 Maven 坐标。
+模块目录和 Maven artifact 为 `ledger-grpc`，生成 Java 包为 `com.ledger.pb.*`。模块名与协议包名分别维护，修改目录名不要求改变 RPC 路径。
 
-## 测试与扩展
+## 构建与扩展
 
-从项目根目录执行 `mvn -pl ledger-grpc -am verify`。测试覆盖按需装配、属性校验、两个客户端的真实本地 gRPC 调用、错误与取消传播、默认和单次超时、轮询和连接复用、发现失败及空列表恢复、旧连接排空与关闭超时。测试使用替代的发现客户端，不需要 Nacos 或数据库。
+从项目根目录执行 `mvn -pl ledger-grpc -am verify`，编译协议、共享客户端并打包，无需运行 Nacos 或数据库。当前模块未包含自动化测试及测试依赖；真实服务发现、RPC 调用与连接生命周期需在联调环境中验证。
 
-新增 RPC 后在对应客户端提供方法，通过 `GrpcClientSupport.invoke` 共用调用策略；领域规则、事务和跨服务补偿继续放在业务服务。通信库与协议共同发布，升级前需验证使用方兼容性。
+新增 RPC 的改动顺序：
+
+1. 修改对应 `.proto` 并重新生成 Stub。
+2. 在业务服务的 Endpoint 中实现 RPC，以 `@GrpcService` 注册；同一 protobuf service 的多个 RPC 放在同一个实现类中。
+3. 在对应共享客户端增加方法，通过 `GrpcClientSupport.invoke` 共用超时策略。
+4. 重新构建使用方并验证实际调用；如需 GET 访问，同步更新网关的只读方法清单。
+
+领域规则、事务和跨服务补偿继续放在业务服务。通信库与协议共同发布，升级前需验证使用方兼容性。注解处理和 IDE 设置见[开发指南](../docs/development.md#lombok-与注解处理)。
 
 相关机制参考：[Spring Boot 自动装配](https://docs.spring.io/spring-boot/reference/features/developing-auto-configuration.html)、[gRPC deadline](https://grpc.io/docs/guides/deadlines/)、[ManagedChannel 生命周期](https://grpc.github.io/grpc-java/javadoc/io/grpc/ManagedChannel.html)。

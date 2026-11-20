@@ -30,7 +30,19 @@ flowchart LR
 
 服务构建时保留普通 JAR，并生成带 `exec` classifier 的可执行 JAR。运行服务使用 `*-exec.jar`。
 
-`ledger-grpc` 是共享通信库，无需独立部署；客户端按配置启用，使用方提供 Nacos 等发现实现。两个服务分别声明中间件依赖，`application.yml` 维护必要启动项、默认 profile、Nacos 公共参数和下游客户端启用项。Spring Boot 按 profile 自动加载对应的 `application-{profile}.yml`；未显式启用 profile 时使用 dev。dev 完整使用本地 `application-dev.yml`，Nacos 仅用于注册与发现，配置中心和导入检查均关闭。test/prod 先读取 Nacos 的 `ledger-infrastructure.yml`，再读取自己的服务配置，运行参数参考各服务的 `application-dev.yml`，字段筛选与发布步骤见 [Nacos 配置中心](configuration.md#nacos-配置中心)。环境 namespace 默认分别为 `ledger-dev`、`ledger-test`、`ledger-prod`。根 POM 只统一依赖版本与构建约束，服务端注册与 MyBatis 配置类位于各服务的 `infrastructure.config`。
+`ledger-grpc` 是共享通信库，无需独立部署；客户端按配置启用，使用方提供 Nacos 等发现实现。两个服务分别声明中间件依赖，服务端注册、虚拟线程与 MyBatis 配置位于各自的 `infrastructure.config`。根 POM 管理依赖版本、JDK/Maven 约束和 Lombok 注解处理。
+
+Java 默认使用 dev 本地配置，test/prod 导入 Nacos 运行配置；Go 网关使用独立启动 YAML。文件职责与发布规则见[配置与运行](configuration.md)。
+
+## 服务端、Stub 与共享客户端
+
+| 类型 | 当前实现 | 职责 |
+| --- | --- | --- |
+| 服务端 Endpoint | `AccountHelloEndpoint`、`TradingHelloEndpoint` | 继承生成的 `ImplBase`，以 `@GrpcService` 注册并处理 RPC |
+| 生成的 Stub | `AccountServiceGrpc`、`TradingServiceGrpc` 中的客户端类型 | 从 `.proto` 生成，描述远程调用方法 |
+| 共享客户端 | `AccountGrpcClient`、`TradingGrpcClient` | 使用 Stub 发起调用，统一接入服务发现、连接管理与超时 |
+
+当前每个 protobuf service 对应一个 Endpoint 和一个共享客户端；同一 service 中的多个 RPC 作为类中的多个方法。Endpoint 的业务编排随实际用例抽到 application 层。模块名为 `ledger-grpc`，生成 Java 包仍为 `com.ledger.pb.*`。
 
 ## 服务运行与发现
 
@@ -83,18 +95,17 @@ com.ledger.account 或 com.ledger.trading
 | 可观测性 | 网关记录请求标识及日志，可转发 trace 上下文 | 尚未接入完整追踪、业务指标和资金审计 |
 | 健康检查 | 网关 `/readyz` 检查配置是否加载 | 不能据此判断下游、协议或中间件可用 |
 | 数据演进 | SQL 手动执行，无自动迁移历史 | 发布时需独立管理执行顺序、兼容性和执行记录 |
-| 验证 | 共享模块与交易服务有本地 gRPC 测试；网关有测试后端 | 尚未验证真实 Nacos、中间件与业务一致性 |
+| 验证 | Java 模块无自动化测试及测试依赖；网关有测试后端 | Java 构建仅验证编译打包，真实调用链与业务一致性需另行验证 |
 
 后续能力应通过可复现的故障场景验证，阶段目标见[架构演进路线](roadmap.md)。
 
 ## 动态网关的数据流
 
-网关启动时读取独立的 `gateway/config/config.yaml`，配置 HTTP 监听、Nacos、上游 TLS、访问 token 及路由 Data ID。启动 YAML 的字段值支持 `${VAR:默认值}` 和 `${VAR}` 环境变量占位符；仅显式声明占位符的字段读取对应进程环境变量，网关不会自动加载 `.env` 文件。可用 `-config` 指定其他启动配置；配置内相对路径以该文件所在目录为基准。服务发现和远端路由共用 YAML 中的 Nacos namespace/group，需与 Java 服务的注册配置对齐。
+网关使用独立的 Go 实现，不依赖 Java 共享客户端：
 
-启动配置修改后需要重启。服务映射统一从 Nacos 订阅，默认 Data ID 为 `gateway-routes.yml`。本地 `config/routes.example.yml` 使用 `services` 映射声明服务简称、Nacos 服务名、版本对应的 protobuf service、GET 方法清单和超时，不再逐接口配置路由。
+1. 从 `gateway/config/config.yaml` 读取启动参数，从 Nacos 订阅服务映射。
+2. 按 `/api/{版本}/{服务简称}/{方法名}` 选择目标 protobuf service 和方法。
+3. 首次请求时按需加载反射或描述文件，将 HTTP 参数转换为 Protobuf 消息。
+4. 通过发现的实例发起 unary gRPC 调用，将结果编码为 ProtoJSON。
 
-HTTP 路径固定为 `/api/{版本}/{服务简称}/{方法名}`。POST JSON 通过 protojson 转换；GET 仅允许清单中的只读方法，Query 仅按 `.proto` 原始字段名自动绑定，嵌套路径逐层严格匹配；POST JSON 继续遵循标准 ProtoJSON 字段命名规则。配置的 protobuf service 中所有 unary 方法允许 POST，因此内部方法需要放到其他 protobuf service。外部请求无法指定任意上游地址或 protobuf service。
-
-配置加载不联系业务服务。首次请求服务版本时，从反射或本地描述文件获取完整协议，构造 dynamicpb 消息并通过复用的 gRPC 连接调用。并发首次访问共享一次最多 5 秒的后台加载，等待者可独立取消；失败不缓存，后续请求可重试。成功协议缓存 1 分钟，过期由下一请求刷新；更新配置 revision 可以立即刷新。Nacos 实例变更独立更新 resolver。
-
-新配置校验通过后整体切换快照，不等待旧请求。每个新快照重新按需建立连接和协议缓存；旧请求和后台协议加载完成后异步关闭旧连接及订阅。无效更新保留旧版本。关闭引擎时停止接入并等待当前及所有旧快照清理。`/readyz` 只代表配置已加载，不检查后端或协议可用性。当前只支持 unary RPC。
+有效配置更新整体切换快照，旧请求完成后释放旧连接；无效更新保留旧配置。协议缓存、请求限制、TLS、GET 清单和热更新细节统一见[网关指南](../gateway/README.md)。
