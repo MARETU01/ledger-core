@@ -1,1 +1,3 @@
 com.ledger.grpc.config.GrpcClientAutoConfiguration
+com.ledger.grpc.config.GrpcServerExceptionAutoConfiguration
+com.ledger.grpc.config.GrpcServerLoggingAutoConfiguration

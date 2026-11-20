@@ -23,7 +23,7 @@ flowchart LR
 
 | 模块 | 当前职责 | 依赖 |
 | --- | --- | --- |
-| `ledger-grpc` | 版本化协议、生成的消息与 stub、共享客户端、发现与连接管理、条件自动装配 | Protobuf、gRPC、Spring Boot 自动装配、Spring Cloud Commons |
+| `ledger-grpc` | 版本化协议、生成的消息与 stub、共享客户端、发现与连接管理、默认服务端异常处理、条件自动装配 | Protobuf、gRPC、Spring Boot 自动装配、Spring Cloud Commons；optional Spring gRPC Core |
 | `account-service` | 账户服务启动入口、服务自身的中间件配置与 Nacos 注册 | ledger-grpc、Spring Boot、Spring Cloud 和中间件客户端 |
 | `trading-service` | 交易服务启动入口、使用共享账户客户端、服务自身的基础配置 | ledger-grpc、Spring Boot、Spring Cloud 和中间件客户端 |
 | `gateway` | Go 动态 HTTP → gRPC 转换、Nacos 发现、路由热更新 | 独立 Go Modules，不参与 Maven 构建 |
@@ -43,6 +43,10 @@ Java 默认使用 dev 本地配置，test/prod 导入 Nacos 运行配置；Go �
 | 共享客户端 | `AccountGrpcClient`、`TradingGrpcClient` | 使用 Stub 发起调用，统一接入服务发现、连接管理与超时 |
 
 当前每个 protobuf service 对应一个 Endpoint 和一个共享客户端；同一 service 中的多个 RPC 作为类中的多个方法。Endpoint 的业务编排随实际用例抽到 application 层。模块名为 `ledger-grpc`，生成 Java 包仍为 `com.ledger.pb.*`。
+
+账户与交易服务共用 `DefaultGrpcExceptionAdvice`：已有 gRPC 异常保留状态与 trailers，未预期异常记录后返回固定的 `INTERNAL` 响应。该 advice 独立于客户端开关自动装配，使用方提供自定义 `@GrpcAdvice` 时默认实现退出。详细规则见[统一异常处理](../ledger-grpc/README.md#服务端统一异常处理)。
+
+共享请求拦截器负责 `x-request-id` 的校验、生成和回传，使用 gRPC Context 保存请求 ID，并为回调设置、恢复 MDC。Java 共享客户端将同一 ID 传给下游；完成日志记录调用方向、RPC 方法、状态及耗时。默认服务端拦截器位于异常处理器外层，能记录映射后的状态；详见[请求标识与调用日志](../ledger-grpc/README.md#请求标识与调用日志)。
 
 ## 服务运行与发现
 
@@ -92,7 +96,7 @@ com.ledger.account 或 com.ledger.trading
 | 下游连接 | 共享客户端按调用刷新发现并淘汰旧地址；默认明文，可启用标准 TLS | 无后台刷新；自定义 CA、mTLS 与身份拦截器需进一步设计 |
 | 接口暴露 | 已配置 protobuf service 的全部 unary 方法允许 POST | 内部 RPC 应放入未对外配置的 service；GET 清单需人工确认只读 |
 | 身份权限 | 网关可配置固定 Bearer token，并转发有限 metadata | 尚无用户认证、账户归属校验和服务身份体系 |
-| 可观测性 | 网关记录请求标识及日志，可转发 trace 上下文 | 尚未接入完整追踪、业务指标和资金审计 |
+| 可观测性 | 网关与 Java gRPC 调用通过请求 ID 关联，Java 客户端与服务端记录方法、状态和耗时 | 尚未接入完整追踪、业务指标和资金审计 |
 | 健康检查 | 网关 `/readyz` 检查配置是否加载 | 不能据此判断下游、协议或中间件可用 |
 | 数据演进 | SQL 手动执行，无自动迁移历史 | 发布时需独立管理执行顺序、兼容性和执行记录 |
 | 验证 | Java 模块无自动化测试及测试依赖；网关有测试后端 | Java 构建仅验证编译打包，真实调用链与业务一致性需另行验证 |

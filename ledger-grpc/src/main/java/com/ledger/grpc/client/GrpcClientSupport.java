@@ -2,6 +2,8 @@ package com.ledger.grpc.client;
 
 import com.ledger.grpc.discovery.DiscoveryGrpcChannels;
 import io.grpc.Channel;
+import io.grpc.ClientInterceptor;
+import io.grpc.ClientInterceptors;
 import io.grpc.Deadline;
 import io.grpc.stub.AbstractStub;
 
@@ -12,6 +14,7 @@ import java.util.function.Function;
 
 /** Shared blocking unary call policy; domain workflows remain in the consuming service. */
 public abstract class GrpcClientSupport {
+    private static final ClientInterceptor REQUEST_INTERCEPTOR = new GrpcRequestClientInterceptor();
     private final DiscoveryGrpcChannels channels;
     private final String serviceId;
     private final Duration timeout;
@@ -29,7 +32,8 @@ public abstract class GrpcClientSupport {
             Duration override, Function<Channel, S> stubFactory, Function<S, T> operation) {
         Duration budget = positive(override == null ? timeout : override);
         Deadline deadline = Deadline.after(budget.toNanos(), TimeUnit.NANOSECONDS);
-        return channels.execute(serviceId, channel -> operation.apply(stubFactory.apply(channel).withDeadline(deadline)));
+        return channels.execute(serviceId, channel -> operation.apply(stubFactory
+                .apply(ClientInterceptors.intercept(channel, REQUEST_INTERCEPTOR)).withDeadline(deadline)));
     }
 
     private static Duration positive(Duration value) {

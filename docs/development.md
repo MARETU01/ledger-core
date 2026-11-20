@@ -34,6 +34,10 @@ IDE 可直接运行 `AccountApplication` 或 `TradingApplication`，默认使用
 
 服务端使用 `org.springframework.grpc.server.service.GrpcService` 标记；共享客户端通过条件自动装配创建。当前尚未接入 `@ImportGrpcClients` 或字段注入式 `@GrpcClient`。
 
+服务端异常由共享模块的 `@GrpcAdvice` / `@GrpcExceptionHandler` 统一处理。Endpoint 中可直接抛出异常，已有 gRPC 状态及 trailers 保留，其他异常记录后返回统一 `INTERNAL`；无需在每个同步 RPC 中重复捕获。业务错误应明确选择 gRPC 状态，异步任务通过 `observer.onError` 返回异常。替换和关闭默认处理的方式见[服务端统一异常处理](../ledger-grpc/README.md#服务端统一异常处理)。
+
+请求日志通过 `@GlobalServerInterceptor` / `@Order(-100)` 接入。排查调用时按日志中的 `request_id` 关联网关、交易和账户服务，再查看 `side`、`method`、`status` 和 `duration_ms`。业务代码可读取 `GrpcRequestContext.currentRequestId()` 或 MDC 的 `requestId`；使用共享客户端时会自动传递 ID。开关与异步上下文说明见[请求标识与调用日志](../ledger-grpc/README.md#请求标识与调用日志)。
+
 修改依赖后重新导入 Maven 项目。若命令行编译正常而 IDE 提示 getter 或构造器不存在，检查 IDE 的 Lombok 支持和注解处理设置。
 
 ## 修改 gRPC 协议
