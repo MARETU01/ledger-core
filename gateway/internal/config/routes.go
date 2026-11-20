@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -14,34 +13,33 @@ import (
 
 const MaxConfigBytes = 1 << 20
 
-type Routes struct {
-	Version  int     `yaml:"version"`
-	Revision string  `yaml:"revision"`
-	Routes   []Route `yaml:"routes"`
+type Services struct {
+	Version  int                `yaml:"version"`
+	Revision string             `yaml:"revision"`
+	Services map[string]Service `yaml:"services"`
 }
 
-type Route struct {
-	ID            string            `yaml:"id"`
-	HTTPMethod    string            `yaml:"http_method"`
-	HTTPPath      string            `yaml:"http_path"`
-	Service       string            `yaml:"target_service"`
-	GRPCMethod    string            `yaml:"grpc_method"`
-	Timeout       string            `yaml:"timeout"`
-	DescriptorSet string            `yaml:"descriptor_set"`
-	PathFields    map[string]string `yaml:"path_fields"`
-	QueryFields   map[string]string `yaml:"query_fields"`
+type Service struct {
+	TargetService  string              `yaml:"target_service"`
+	ProtoServices  map[string]string   `yaml:"proto_services"`
+	GetMethods     map[string][]string `yaml:"get_methods"`
+	Timeout        string              `yaml:"timeout"`
+	DescriptorSets map[string]string   `yaml:"descriptor_sets"`
 }
 
+var aliasName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+var versionName = regexp.MustCompile(`^v[1-9][0-9]*$`)
 var serviceName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
-var methodName = regexp.MustCompile(`^/([A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*/[A-Za-z_][A-Za-z0-9_]*$`)
+var protoServiceName = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*$`)
+var MethodName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func Parse(data []byte) (*Routes, error) {
+func Parse(data []byte) (*Services, error) {
 	if len(data) > MaxConfigBytes {
-		return nil, fmt.Errorf("route configuration exceeds 1 MiB")
+		return nil, fmt.Errorf("service configuration exceeds 1 MiB")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
-	var cfg Routes
+	var cfg Services
 	if err := dec.Decode(&cfg); err != nil {
 		return nil, err
 	}
@@ -52,40 +50,49 @@ func Parse(data []byte) (*Routes, error) {
 	if cfg.Version != 1 || strings.TrimSpace(cfg.Revision) == "" {
 		return nil, fmt.Errorf("version: 1 and nonempty revision are required")
 	}
-	if len(cfg.Routes) == 0 || len(cfg.Routes) > 256 {
-		return nil, fmt.Errorf("expected 1..256 routes")
+	if len(cfg.Services) == 0 || len(cfg.Services) > 256 {
+		return nil, fmt.Errorf("expected 1..256 services")
 	}
-	ids := map[string]bool{}
-	patterns := map[string]bool{}
-	for i := range cfg.Routes {
-		r := &cfg.Routes[i]
-		if r.ID == "" || ids[r.ID] {
-			return nil, fmt.Errorf("missing or duplicate route ID %q", r.ID)
+	for alias, svc := range cfg.Services {
+		if !aliasName.MatchString(alias) || !serviceName.MatchString(svc.TargetService) {
+			return nil, fmt.Errorf("invalid service alias or target: %s", alias)
 		}
-		ids[r.ID] = true
-		switch r.HTTPMethod {
-		case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
-		default:
-			return nil, fmt.Errorf("route %s: unsupported HTTP method", r.ID)
+		if len(svc.ProtoServices) == 0 || len(svc.ProtoServices) > 32 {
+			return nil, fmt.Errorf("service %s: expected 1..32 versions", alias)
 		}
-		if !strings.HasPrefix(r.HTTPPath, "/api/") || strings.ContainsAny(r.HTTPPath, " ?#\t\r\n") {
-			return nil, fmt.Errorf("route %s: path must start with /api/ and contain no query or whitespace", r.ID)
+		for version, name := range svc.ProtoServices {
+			if !versionName.MatchString(version) || !protoServiceName.MatchString(name) {
+				return nil, fmt.Errorf("service %s: invalid version or protobuf service", alias)
+			}
 		}
-		if !serviceName.MatchString(r.Service) || !methodName.MatchString(r.GRPCMethod) {
-			return nil, fmt.Errorf("route %s: invalid target service or full RPC method", r.ID)
+		for version, methods := range svc.GetMethods {
+			if _, ok := svc.ProtoServices[version]; !ok {
+				return nil, fmt.Errorf("service %s: GET version is undeclared", alias)
+			}
+			seen := map[string]bool{}
+			if len(methods) > 256 {
+				return nil, fmt.Errorf("too many GET methods")
+			}
+			for _, method := range methods {
+				if !MethodName.MatchString(method) || seen[method] {
+					return nil, fmt.Errorf("invalid or duplicate GET method %q", method)
+				}
+				seen[method] = true
+			}
 		}
-		if r.Timeout == "" {
-			r.Timeout = "2s"
+		for version, filename := range svc.DescriptorSets {
+			if _, ok := svc.ProtoServices[version]; !ok || strings.TrimSpace(filename) == "" {
+				return nil, fmt.Errorf("service %s: invalid descriptor version or filename", alias)
+			}
 		}
-		d, err := time.ParseDuration(r.Timeout)
+		if svc.Timeout == "" {
+			svc.Timeout = "2s"
+		}
+		d, err := time.ParseDuration(svc.Timeout)
 		if err != nil || d <= 0 || d > 30*time.Second {
-			return nil, fmt.Errorf("route %s: timeout must be >0 and <=30s", r.ID)
+			return nil, fmt.Errorf("service %s: timeout must be >0 and <=30s", alias)
 		}
-		pattern := r.HTTPMethod + " " + r.HTTPPath
-		if patterns[pattern] {
-			return nil, fmt.Errorf("duplicate HTTP route %s", pattern)
-		}
-		patterns[pattern] = true
+		cfg.Services[alias] = svc
 	}
 	return &cfg, nil
 }

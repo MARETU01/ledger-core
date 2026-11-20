@@ -15,7 +15,10 @@ import (
 	"github.com/MARETU01/ledger-core/gateway/internal/discovery"
 	"google.golang.org/grpc"
 	_ "google.golang.org/grpc/balancer/roundrobin"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 type Engine struct {
@@ -29,11 +32,24 @@ type Engine struct {
 	closed        bool
 }
 type snapshot struct {
-	mux         *http.ServeMux
-	connections map[string]*grpc.ClientConn
-	revision    string
-	requests    sync.WaitGroup
-	done        chan struct{}
+	services map[string]*serviceRuntime
+	revision string
+	requests sync.WaitGroup
+	done     chan struct{}
+}
+
+type serviceRuntime struct {
+	config    config.Service
+	mu        sync.Mutex
+	conn      *grpc.ClientConn
+	protocols map[string]*protocolLoad
+}
+
+type protocolLoad struct {
+	done    chan struct{}
+	service *descriptor.Service
+	err     error
+	expires time.Time
 }
 
 func New(source discovery.Source, creds credentials.TransportCredentials, descriptorDir string) *Engine {
@@ -43,7 +59,7 @@ func New(source discovery.Source, creds credentials.TransportCredentials, descri
 	}
 }
 
-// Apply fully builds and validates an immutable snapshot before replacing the old one.
+// Apply validates service configuration without contacting backends, then publishes a snapshot.
 // Existing requests finish on the old snapshot before its connections are closed.
 func (e *Engine) Apply(ctx context.Context, data []byte) error {
 	// Serialize builders, but let canceled reloads stop waiting immediately.
@@ -66,48 +82,9 @@ func (e *Engine) Apply(ctx context.Context, data []byte) error {
 	if err != nil {
 		return err
 	}
-	next := &snapshot{
-		mux: http.NewServeMux(), connections: map[string]*grpc.ClientConn{},
-		revision: cfg.Revision, done: make(chan struct{}),
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			next.close()
-		}
-	}()
-	for _, route := range cfg.Routes {
-		conn := next.connections[route.Service]
-		if conn == nil {
-			conn, err = grpc.NewClient("ledger:///"+route.Service,
-				grpc.WithResolvers(discovery.Builder{Source: e.source}),
-				grpc.WithTransportCredentials(e.credentials.Clone()),
-				grpc.WithDefaultServiceConfig(`{"loadBalancingConfig":[{"round_robin":{}}]}`),
-				grpc.WithDisableRetry(),
-				grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(4<<20), grpc.MaxCallSendMsgSize(1<<20)))
-			if err != nil {
-				return fmt.Errorf("route %s: %w", route.ID, err)
-			}
-			next.connections[route.Service] = conn
-		}
-		filename := route.DescriptorSet
-		if filename != "" && !filepath.IsAbs(filename) {
-			filename = filepath.Join(e.descriptorDir, filename)
-		}
-		loadCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		method, loadErr := descriptor.Load(loadCtx, conn, route.GRPCMethod, filename)
-		cancel()
-		if loadErr != nil {
-			return fmt.Errorf("route %s descriptor: %w", route.ID, loadErr)
-		}
-		timeout, _ := time.ParseDuration(route.Timeout)
-		handler, err := newRouteHandler(route, method, conn, timeout)
-		if err != nil {
-			return fmt.Errorf("route %s: %w", route.ID, err)
-		}
-		if err := register(next.mux, route.HTTPMethod+" "+route.HTTPPath, handler); err != nil {
-			return err
-		}
+	next := &snapshot{services: make(map[string]*serviceRuntime), revision: cfg.Revision, done: make(chan struct{})}
+	for alias, svc := range cfg.Services {
+		next.services[alias] = &serviceRuntime{config: svc, protocols: make(map[string]*protocolLoad)}
 	}
 	e.mu.Lock()
 	if err := ctx.Err(); err != nil {
@@ -118,21 +95,10 @@ func (e *Engine) Apply(ctx context.Context, data []byte) error {
 	e.current = next
 	e.snapshots[next] = struct{}{}
 	e.mu.Unlock()
-	committed = true
 	if old != nil {
 		go e.retire(old)
 	}
-	slog.Info("gateway routes applied", "revision", cfg.Revision, "routes", len(cfg.Routes))
-	return nil
-}
-
-func register(mux *http.ServeMux, pattern string, handler http.Handler) (err error) {
-	defer func() {
-		if value := recover(); value != nil {
-			err = fmt.Errorf("invalid HTTP route %q: %v", pattern, value)
-		}
-	}()
-	mux.Handle(pattern, handler)
+	slog.Info("gateway services applied", "revision", cfg.Revision, "services", len(cfg.Services))
 	return nil
 }
 
@@ -150,25 +116,129 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.requests.Done()
-	_, pattern := s.mux.Handler(r)
-	if pattern == "" {
-		allowed := []string{}
-		for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE"} {
-			copy := r.Clone(r.Context())
-			copy.Method = method
-			if _, p := s.mux.Handler(copy); p != "" {
-				allowed = append(allowed, method)
-			}
-		}
-		if len(allowed) > 0 {
-			w.Header().Set("Allow", strings.Join(allowed, ", "))
-			writeError(w, r, 405, "METHOD_NOT_ALLOWED", "Method not allowed")
-		} else {
-			writeError(w, r, 404, "NOT_FOUND", "Route not found")
-		}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "api" || !config.MethodName.MatchString(parts[3]) {
+		writeError(w, r, 404, "NOT_FOUND", "Method not found")
 		return
 	}
-	s.mux.ServeHTTP(w, r)
+	version, alias, name := parts[1], parts[2], parts[3]
+	svc := s.services[alias]
+	if svc == nil || svc.config.ProtoServices[version] == "" {
+		writeError(w, r, 404, "NOT_FOUND", "Service or version not found")
+		return
+	}
+	allowedGET := false
+	for _, method := range svc.config.GetMethods[version] {
+		if method == name {
+			allowedGET = true
+			break
+		}
+	}
+	if r.Method != "POST" && (r.Method != "GET" || !allowedGET) {
+		allow := "POST"
+		if allowedGET {
+			allow = "GET, POST"
+		}
+		w.Header().Set("Allow", allow)
+		writeError(w, r, 405, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+	// Reject ambiguous inputs before doing any discovery or protocol loading.
+	if r.Method == "POST" && r.URL.RawQuery != "" {
+		writeError(w, r, 400, "INVALID_ARGUMENT", "POST accepts JSON body only; query parameters are not supported")
+		return
+	}
+	if len(r.URL.RawQuery) > 16<<10 {
+		writeError(w, r, 414, "INVALID_ARGUMENT", "Query exceeds 16 KiB")
+		return
+	}
+	protocol, conn, err := e.protocol(r.Context(), s, svc, version)
+	if err != nil {
+		code := status.Code(err)
+		if code == codes.Unknown {
+			code = codes.Unavailable
+		}
+		slog.Warn("protocol load failed", "service", alias, "version", version, "error", err)
+		writeError(w, r, httpStatus(code), codeName(code), publicMessage(code))
+		return
+	}
+	method := protocol.Descriptor.Methods().ByName(protoreflect.Name(name))
+	if method == nil {
+		writeError(w, r, 404, "NOT_FOUND", "Method not found")
+		return
+	}
+	if method.IsStreamingClient() || method.IsStreamingServer() {
+		writeError(w, r, 400, "INVALID_ARGUMENT", "Only unary RPC methods are supported")
+		return
+	}
+	timeout, _ := time.ParseDuration(svc.config.Timeout)
+	h := &routeHandler{grpcMethod: "/" + svc.config.ProtoServices[version] + "/" + name,
+		method: &descriptor.Method{Descriptor: method, Types: protocol.Types}, conn: conn, timeout: timeout}
+	h.ServeHTTP(w, r)
+}
+
+// Each snapshot caches a complete protobuf service per version. Requests share a
+// bounded background load; cancellation of one waiter cannot cancel other callers.
+func (e *Engine) protocol(ctx context.Context, s *snapshot, svc *serviceRuntime, version string) (*descriptor.Service, *grpc.ClientConn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, status.FromContextError(err).Err()
+	}
+	svc.mu.Lock()
+	load := svc.protocols[version]
+	if load == nil || (!load.expires.IsZero() && time.Now().After(load.expires)) {
+		load = &protocolLoad{done: make(chan struct{})}
+		svc.protocols[version] = load
+		s.requests.Add(1) // Caller already holds a lease, so retirement cannot finish.
+		go func() {
+			defer s.requests.Done()
+			loadCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			svc.mu.Lock()
+			conn := svc.conn
+			var err error
+			if conn == nil {
+				conn, err = grpc.NewClient("ledger:///"+svc.config.TargetService,
+					grpc.WithResolvers(discovery.Builder{Source: e.source}),
+					grpc.WithTransportCredentials(e.credentials.Clone()),
+					grpc.WithDefaultServiceConfig(`{"loadBalancingConfig":[{"round_robin":{}}]}`),
+					grpc.WithDisableRetry(),
+					grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(4<<20), grpc.MaxCallSendMsgSize(1<<20)))
+				if err == nil {
+					svc.conn = conn
+				}
+			}
+			svc.mu.Unlock()
+
+			filename := svc.config.DescriptorSets[version]
+			if filename != "" && !filepath.IsAbs(filename) {
+				filename = filepath.Join(e.descriptorDir, filename)
+			}
+			var protocol *descriptor.Service
+			if err == nil {
+				protocol, err = descriptor.LoadService(loadCtx, conn, svc.config.ProtoServices[version], filename)
+			}
+			svc.mu.Lock()
+			load.service, load.err = protocol, err
+			if err == nil {
+				load.expires = time.Now().Add(time.Minute)
+			}
+			if err != nil {
+				delete(svc.protocols, version)
+			}
+			close(load.done)
+			svc.mu.Unlock()
+		}()
+	}
+	svc.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return nil, nil, status.FromContextError(ctx.Err()).Err()
+	case <-load.done:
+		svc.mu.Lock()
+		conn := svc.conn
+		svc.mu.Unlock()
+		return load.service, conn, load.err
+	}
 }
 
 func (e *Engine) Ready() (string, bool) {
@@ -181,8 +251,10 @@ func (e *Engine) Ready() (string, bool) {
 }
 
 func (s *snapshot) close() {
-	for _, conn := range s.connections {
-		_ = conn.Close()
+	for _, svc := range s.services {
+		if svc.conn != nil {
+			_ = svc.conn.Close()
+		}
 	}
 }
 

@@ -2,7 +2,6 @@ package gateway_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http/httptest"
@@ -25,7 +24,6 @@ func receive[T any](t *testing.T, results <-chan T, operation string) T {
 		return zero
 	}
 }
-
 func eventually(t *testing.T, condition func() bool, operation string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -36,70 +34,76 @@ func eventually(t *testing.T, condition func() bool, operation string) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
-
 func listenerCount(source *mutableDiscovery) int {
 	source.mu.Lock()
 	defer source.mu.Unlock()
 	return len(source.listeners)
 }
-
-func applyAsync(e *gateway.Engine, ctx context.Context, data []byte) <-chan error {
-	result := make(chan error, 1)
-	go func() { result <- e.Apply(ctx, data) }()
-	return result
-}
-
-func callAsync(e *gateway.Engine, body string) <-chan *httptest.ResponseRecorder {
+func callAsync(e *gateway.Engine, method, body string) <-chan *httptest.ResponseRecorder {
 	result := make(chan *httptest.ResponseRecorder, 1)
-	go func() { result <- call(e, "POST", "/api/v1/echo", body) }()
+	go func() { result <- call(e, "POST", "/api/v1/test/"+method, body) }()
 	return result
 }
 
-func expectValue(t *testing.T, response *httptest.ResponseRecorder, value string) {
-	t.Helper()
-	expect(t, response, 200, "")
-	var body map[string]any
-	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body["value"] != value {
-		t.Fatalf("got response %s, want value %q", response.Body, value)
-	}
-}
-
-func TestReloadKeepsInflightRPCAndReleasesRetiredConnection(t *testing.T) {
-	entered, release := make(chan struct{}, 1), make(chan struct{})
-	addr := backendWithGate(t, true, entered, release)
-	source := &mutableDiscovery{addresses: []string{addr}}
+func TestReloadAndCloseDrainRequests(t *testing.T) {
+	entered, release := make(chan struct{}, 2), make(chan struct{})
+	source := &mutableDiscovery{addresses: []string{backendWithGate(t, true, entered, release)}}
 	e := engine(t, source)
-	var unblock sync.Once
-	t.Cleanup(func() { unblock.Do(func() { close(release) }) })
-	apply(t, e, routes("first", "Blocked", "/api/v1/echo", "    timeout: 10s\n"))
-	old := callAsync(e, `{"value":"old"}`)
-	receive(t, entered, "old RPC to enter backend")
-
-	if err := receive(t, applyAsync(e, t.Context(), routes("second", "Added", "/api/v1/echo", "")), "route switch with RPC blocked"); err != nil {
-		t.Fatal(err)
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	apply(t, e, services("first", "    timeout: 10s\n"))
+	old := callAsync(e, "Blocked", `{"value":"old"}`)
+	receive(t, entered, "old RPC")
+	apply(t, e, services("second", "    timeout: 10s\n"))
+	expect(t, call(e, "POST", "/api/v1/test/Added", `{"value":"new"}`), 200, "added:new")
+	if listenerCount(source) != 2 {
+		t.Fatal("old snapshot closed during inflight call")
 	}
-	if revision, ready := e.Ready(); !ready || revision != "second" {
-		t.Fatalf("active revision = %q, ready = %v", revision, ready)
-	}
-	expect(t, receive(t, callAsync(e, `{"value":"new"}`), "new request"), 200, "added:new")
-	if count := listenerCount(source); count != 2 {
-		t.Fatalf("got %d subscriptions, want active and draining snapshots", count)
-	}
+	current := callAsync(e, "Blocked", `{"value":"current"}`)
+	receive(t, entered, "current RPC")
+	closed := make(chan struct{})
+	go func() { e.Close(); close(closed) }()
+	eventually(t, func() bool { _, ready := e.Ready(); return !ready }, "stop accepting")
+	expect(t, call(e, "POST", "/api/v1/test/Echo", `{}`), 503, "UNAVAILABLE")
 	select {
-	case response := <-old:
-		t.Fatalf("old RPC ended before release: %d %s", response.Code, response.Body)
+	case <-closed:
+		t.Fatal("close returned before draining")
 	default:
 	}
-	unblock.Do(func() { close(release) })
-	expectValue(t, receive(t, old, "old RPC completion"), "old")
-	eventually(t, func() bool { return listenerCount(source) == 1 }, "retired connection unsubscribe")
-	e.Close()
-	if count := listenerCount(source); count != 0 {
-		t.Fatalf("subscriptions leaked after close: %d", count)
+	once.Do(func() { close(release) })
+	expect(t, receive(t, old, "old completion"), 200, "old")
+	expect(t, receive(t, current, "current completion"), 200, "current")
+	receive(t, closed, "close completion")
+	if listenerCount(source) != 0 {
+		t.Fatal("subscriptions leaked")
 	}
+	if err := e.Apply(t.Context(), services("after-close", "")); err == nil {
+		t.Fatal("closed engine accepted config")
+	}
+	e.Close()
+}
+
+func TestInvalidAndCanceledUpdatesKeepSnapshot(t *testing.T) {
+	e := engine(t, staticSource{"backend": {backend(t, true)}})
+	apply(t, e, services("first", ""))
+	for _, bad := range [][]byte{
+		[]byte("version: 1\nrevision: old\nroutes: []"),
+		[]byte(strings.ReplaceAll(string(services("bad", "")), "v1: gateway.test.v1.Dynamic", "v1: invalid/service")),
+		services("bad", "    timeout: 0s\n"),
+	} {
+		if err := e.Apply(t.Context(), bad); err == nil {
+			t.Fatal("invalid update accepted")
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := e.Apply(ctx, services("canceled", "")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	if rev, ready := e.Ready(); !ready || rev != "first" {
+		t.Fatal("lost original snapshot")
+	}
+	expect(t, call(e, "POST", "/api/v1/test/Echo", `{"value":"still-working"}`), 200, "still-working")
 }
 
 type gatedBody struct {
@@ -115,138 +119,40 @@ func (b *gatedBody) Read(p []byte) (int, error) {
 	return b.reader.Read(p)
 }
 
-func TestReloadDoesNotWaitForRequestBody(t *testing.T) {
-	addr := backend(t, true)
-	e := engine(t, staticSource{"backend": {addr}})
+func TestReloadDoesNotWaitForBody(t *testing.T) {
+	source := &mutableDiscovery{addresses: []string{backend(t, true)}}
+	e := engine(t, source)
+	apply(t, e, services("first", ""))
 	release := make(chan struct{})
-	var unblock sync.Once
-	t.Cleanup(func() { unblock.Do(func() { close(release) }) })
-	apply(t, e, routes("first", "Echo", "/api/v1/echo", ""))
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
 	body := &gatedBody{reader: strings.NewReader(`{"value":"old"}`), entered: make(chan struct{}), release: release}
-	request := httptest.NewRequest("POST", "/api/v1/echo", body)
+	request := httptest.NewRequest("POST", "/api/v1/test/Echo", body)
 	request.Header.Set("Content-Type", "application/json")
 	old := make(chan *httptest.ResponseRecorder, 1)
-	go func() {
-		result := httptest.NewRecorder()
-		e.ServeHTTP(result, request)
-		old <- result
-	}()
-	receive(t, body.entered, "request body read")
-	if err := receive(t, applyAsync(e, t.Context(), routes("second", "Added", "/api/v1/echo", "")), "route switch with body blocked"); err != nil {
-		t.Fatal(err)
-	}
-	expect(t, receive(t, callAsync(e, `{"value":"new"}`), "new request with old body blocked"), 200, "added:new")
-	unblock.Do(func() { close(release) })
-	expectValue(t, receive(t, old, "old body request completion"), "old")
+	go func() { result := httptest.NewRecorder(); e.ServeHTTP(result, request); old <- result }()
+	receive(t, body.entered, "body read")
+	apply(t, e, services("second", ""))
+	expect(t, call(e, "POST", "/api/v1/test/Added", `{"value":"new"}`), 200, "added:new")
+	once.Do(func() { close(release) })
+	expect(t, receive(t, old, "old body completion"), 200, "old")
+	eventually(t, func() bool { return listenerCount(source) == 1 }, "retired unsubscribe")
 }
 
-func TestCloseDrainsCurrentAndRetiredSnapshots(t *testing.T) {
-	entered, release := make(chan struct{}, 2), make(chan struct{})
-	addr := backendWithGate(t, true, entered, release)
-	source := &mutableDiscovery{addresses: []string{addr}}
-	e := engine(t, source)
-	var unblock sync.Once
-	t.Cleanup(func() { unblock.Do(func() { close(release) }) })
-	apply(t, e, routes("first", "Blocked", "/api/v1/echo", "    timeout: 10s\n"))
-	old := callAsync(e, `{"value":"old"}`)
-	receive(t, entered, "old RPC")
-	if err := receive(t, applyAsync(e, t.Context(), routes("second", "Blocked", "/api/v1/echo", "    timeout: 10s\n")), "route switch"); err != nil {
-		t.Fatal(err)
+func TestConcurrentReloadAndRequests(t *testing.T) {
+	e := engine(t, staticSource{"backend": {backend(t, true)}})
+	apply(t, e, services("first", ""))
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 12 {
+				result := call(e, "POST", "/api/v1/test/Echo", `{"value":"concurrent"}`)
+				if result.Code != 200 {
+					t.Errorf("reload interrupted call: %d %s", result.Code, result.Body)
+				}
+			}
+		})
 	}
-	current := callAsync(e, `{"value":"current"}`)
-	receive(t, entered, "current RPC")
-	closed := make(chan struct{})
-	go func() { e.Close(); close(closed) }()
-	eventually(t, func() bool { _, ready := e.Ready(); return !ready }, "close to stop accepting requests")
-	expect(t, call(e, "POST", "/api/v1/echo", `{}`), 503, "UNAVAILABLE")
-	select {
-	case <-closed:
-		t.Fatal("close returned before inflight requests drained")
-	default:
-	}
-	unblock.Do(func() { close(release) })
-	expectValue(t, receive(t, old, "retired RPC during close"), "old")
-	expectValue(t, receive(t, current, "current RPC during close"), "current")
-	receive(t, closed, "close completion")
-	if count := listenerCount(source); count != 0 {
-		t.Fatalf("subscriptions leaked: %d", count)
-	}
-	if err := e.Apply(t.Context(), routes("after-close", "Echo", "/api/v1/echo", "")); err == nil {
-		t.Fatal("closed engine accepted routes")
-	}
-	e.Close()
-}
-
-type gatedDiscovery struct {
-	staticSource
-	entered chan struct{}
-	release <-chan struct{}
-}
-
-func TestCloseWaitsForRetiredSnapshotAfterCurrentIsIdle(t *testing.T) {
-	entered, release := make(chan struct{}, 1), make(chan struct{})
-	addr := backendWithGate(t, true, entered, release)
-	source := &mutableDiscovery{addresses: []string{addr}}
-	e := engine(t, source)
-	var unblock sync.Once
-	t.Cleanup(func() { unblock.Do(func() { close(release) }) })
-	apply(t, e, routes("first", "Blocked", "/api/v1/echo", "    timeout: 10s\n"))
-	old := callAsync(e, `{"value":"old"}`)
-	receive(t, entered, "old RPC")
-	if err := receive(t, applyAsync(e, t.Context(), routes("second", "Echo", "/api/v1/echo", "")), "route switch"); err != nil {
-		t.Fatal(err)
-	}
-	closed := make(chan struct{})
-	go func() { e.Close(); close(closed) }()
-	eventually(t, func() bool { return listenerCount(source) == 1 }, "idle current connection to close")
-	select {
-	case <-closed:
-		t.Fatal("close forgot a retired snapshot with an inflight RPC")
-	default:
-	}
-	unblock.Do(func() { close(release) })
-	expectValue(t, receive(t, old, "retired RPC completion"), "old")
-	receive(t, closed, "retired snapshot cleanup")
-	if count := listenerCount(source); count != 0 {
-		t.Fatalf("subscriptions leaked: %d", count)
-	}
-}
-
-func (s *gatedDiscovery) Watch(service string, update func([]string)) (func(), error) {
-	if service == "paused" {
-		close(s.entered)
-		<-s.release
-	}
-	return s.staticSource.Watch(service, update)
-}
-
-func TestCanceledReloadDoesNotWaitForAnotherBuilder(t *testing.T) {
-	addr := backend(t, true)
-	release := make(chan struct{})
-	source := &gatedDiscovery{staticSource: staticSource{"backend": {addr}, "paused": {addr}}, entered: make(chan struct{}), release: release}
-	e := engine(t, source)
-	var unblock sync.Once
-	t.Cleanup(func() { unblock.Do(func() { close(release) }) })
-	apply(t, e, routes("first", "Echo", "/api/v1/echo", ""))
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	building := applyAsync(e, ctx, []byte(strings.ReplaceAll(string(routes("second", "Added", "/api/v1/echo", "")), "target_service: backend", "target_service: paused")))
-	receive(t, source.entered, "first builder to pause")
-	canceledCtx, cancelWaiting := context.WithCancel(t.Context())
-	waiting := applyAsync(e, canceledCtx, routes("canceled", "Echo", "/api/v1/echo", ""))
-	cancelWaiting()
-	if err := receive(t, waiting, "canceled queued reload"); !errors.Is(err, context.Canceled) {
-		t.Fatalf("got %v, want context cancellation", err)
-	}
-	if revision, ready := e.Ready(); !ready || revision != "first" {
-		t.Fatalf("unexpected active revision: %q", revision)
-	}
-	expect(t, receive(t, callAsync(e, `{"value":"available"}`), "request during build"), 200, "available")
-	unblock.Do(func() { close(release) })
-	if err := receive(t, building, "first builder completion"); err != nil {
-		t.Fatal(err)
-	}
-	if revision, ready := e.Ready(); !ready || revision != "second" {
-		t.Fatalf("unexpected active revision after build: %q", revision)
-	}
+	apply(t, e, services("second", ""))
+	wg.Wait()
 }

@@ -79,7 +79,7 @@ mvn verify
 | 设置环境变量后网关配置没有变化 | 检查实际使用的 `-config` 文件是否在对应字段声明了 `${VAR:默认值}` 或 `${VAR}`；直接写死的字段不会被环境变量覆盖，修改后需重启 |
 | 网关提示 flag provided but not defined | 旧的逐项启动参数已移除，使用 `-config config/config.local.yaml` |
 | 网关提示 field ... not found | 启动配置严格校验字段；对照 `gateway/config/config.yaml` 检查字段名、缩进，并确认没有将路由 YAML 当作启动配置 |
-| 网关找不到路由或证书文件 | 配置中的相对路径以启动配置所在目录为准；`descriptor_set` 以 `descriptor_dir` 为准 |
+| 网关找不到路由或证书文件 | 配置中的相对路径以启动配置所在目录为准；`descriptor_sets` 中的文件以 `descriptor_dir` 为准 |
 
 当前 Java 业务服务没有 HTTP Actuator 端口。不要通过 HTTP 请求 8081/8082 判断服务是否启动；使用 grpcurl 反射列表或启动日志。
 
@@ -89,6 +89,6 @@ mvn verify
 
 网关测试使用测试后端，不要求运行 Java 服务或 Nacos。Hello 的真实环境调用链按 [Hello 示例](hello.md) 联调。
 
-启动配置在 `gateway/config/config.yaml`，路由示例在 `gateway/config/routes.example.yml`，包含两个 Hello 接口，需发布到 Nacos 的 `gateway-routes.yml`。网关无需导入 `.env`；在 IDE 中将工作目录设为 `gateway/`，或通过 `-config` 指定启动配置文件。监听、Nacos、TLS 和 token 等启动配置修改后需重启，Nacos 路由规则支持热更新。个人配置可复制为已忽略的 `gateway/config/config.local.yaml`，旧配置中的 `routes_source`、`routes_file` 字段需要删除。
+启动配置在 `gateway/config/config.yaml`，服务映射示例在 `gateway/config/routes.example.yml`，声明账户和交易服务，需发布到 Nacos 的 `gateway-routes.yml`。网关无需导入 `.env`；在 IDE 中将工作目录设为 `gateway/`，或通过 `-config` 指定启动配置文件。监听、Nacos、TLS 和 token 等启动配置修改后需重启，Nacos 服务映射支持热更新。个人配置可复制为已忽略的 `gateway/config/config.local.yaml`，旧配置中的 `routes_source`、`routes_file` 字段需要删除。
 
-新增 Java RPC 后，通过路由发布和反射或描述文件加载完成接入；只修改路由无需重编译 Go。进程级联调及配置字段见[网关指南](../gateway/README.md)。网关的 `/readyz` 返回生效 revision；无效更新在日志记录 `route update rejected` 并保留旧配置。
+新增已配置 protobuf service 中的 unary RPC 后，可通过 `/api/{版本}/{服务简称}/{方法名}` POST JSON 调用，无需逐接口发布路由。GET Query 调用需将只读方法加入对应版本的 `get_methods`。协议按需加载，缓存 1 分钟；需要立即刷新时更新配置 revision。新增服务或版本仍需发布服务映射。网关可以先于 Java 服务启动，协议加载失败后的请求会重新尝试。`/readyz` 返回生效 revision，不检查后端连通性；无效配置更新记录 `service update rejected` 并保留旧配置。完整字段及迁移步骤见[网关指南](../gateway/README.md)。

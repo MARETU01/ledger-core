@@ -5,101 +5,62 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/MARETU01/ledger-core/gateway/internal/config"
-	"github.com/MARETU01/ledger-core/gateway/internal/descriptor"
-	"google.golang.org/grpc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-type fieldBinding struct {
-	source string
-	fields []protoreflect.FieldDescriptor
-}
-
-var pathVariable = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_]*)\}`)
-
-func newRouteHandler(route config.Route, method *descriptor.Method, conn grpc.ClientConnInterface, timeout time.Duration) (http.Handler, error) {
-	h := &routeHandler{route: route, method: method, conn: conn, timeout: timeout}
-	variables := map[string]bool{}
-	for _, match := range pathVariable.FindAllStringSubmatch(route.HTTPPath, -1) {
-		variables[match[1]] = true
+// bindQuery accepts only original .proto field names, including nested paths.
+// URL values never pass
+// through an untyped JSON number, preserving full int64/uint64 precision.
+func bindQuery(message protoreflect.Message, r *http.Request) error {
+	if len(r.URL.RawQuery) > 16<<10 {
+		return fmt.Errorf("query exceeds 16 KiB")
 	}
-	if strings.ContainsAny(pathVariable.ReplaceAllString(route.HTTPPath, ""), "{}") {
-		return nil, fmt.Errorf("only single-segment {name} path variables are supported")
+	if strings.Count(r.URL.RawQuery, "&") >= 128 {
+		return fmt.Errorf("too many query parameters")
 	}
-	used := map[string]bool{}
-	bind := func(source, target string) (fieldBinding, error) {
-		if source == "" || target == "" {
-			return fieldBinding{}, fmt.Errorf("empty parameter binding")
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return fmt.Errorf("invalid query encoding")
+	}
+	for name, values := range query {
+		parts := strings.Split(name, ".")
+		if len(parts) > 8 {
+			return fmt.Errorf("query nesting exceeds 8 levels")
 		}
 		fields := []protoreflect.FieldDescriptor{}
-		message := method.Descriptor.Input()
-		parts := strings.Split(target, ".")
-		canonical := []string{}
+		md := message.Descriptor()
 		for i, part := range parts {
-			field := message.Fields().ByName(protoreflect.Name(part))
+			field := md.Fields().ByName(protoreflect.Name(part))
 			if field == nil {
-				field = message.Fields().ByJSONName(part)
+				return fmt.Errorf("unknown input field %s", name)
 			}
-			if field == nil {
-				return fieldBinding{}, fmt.Errorf("unknown input field %s", target)
-			}
-			canonical = append(canonical, string(field.Name()))
 			fields = append(fields, field)
 			if i < len(parts)-1 {
 				if field.Message() == nil || field.IsMap() || field.IsList() {
-					return fieldBinding{}, fmt.Errorf("invalid nested field %s", target)
+					return fmt.Errorf("invalid nested field %s", name)
 				}
-				message = field.Message()
+				md = field.Message()
 			} else if field.Message() != nil || field.IsMap() {
-				return fieldBinding{}, fmt.Errorf("parameter target %s must be scalar or repeated scalar", target)
+				return fmt.Errorf("field %s requires a JSON body", name)
 			}
 		}
-		key := strings.Join(canonical, ".")
-		if used[key] {
-			return fieldBinding{}, fmt.Errorf("duplicate target field %s", target)
+		if err := setField(message, fields, values); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
 		}
-		used[key] = true
-		return fieldBinding{source: source, fields: fields}, nil
 	}
-	for source, target := range route.PathFields {
-		if !variables[source] {
-			return nil, fmt.Errorf("path binding %s has no matching placeholder", source)
-		}
-		b, err := bind(source, target)
-		if err != nil {
-			return nil, err
-		}
-		if b.fields[len(b.fields)-1].IsList() {
-			return nil, fmt.Errorf("path fields cannot be repeated")
-		}
-		h.paths = append(h.paths, b)
-		delete(variables, source)
-	}
-	if len(variables) > 0 {
-		return nil, fmt.Errorf("every path placeholder requires a path_fields binding")
-	}
-	for source, target := range route.QueryFields {
-		b, err := bind(source, target)
-		if err != nil {
-			return nil, err
-		}
-		h.queries = append(h.queries, b)
-	}
-	return h, nil
-}
-
-func parseQuery(r *http.Request) (map[string][]string, error) {
-	return url.ParseQuery(r.URL.RawQuery)
+	return nil
 }
 
 func setField(message protoreflect.Message, fields []protoreflect.FieldDescriptor, values []string) error {
 	field := fields[0]
+	if oneof := field.ContainingOneof(); oneof != nil {
+		if selected := message.WhichOneof(oneof); selected != nil && selected != field {
+			return fmt.Errorf("conflicting oneof fields %s and %s", selected.Name(), field.Name())
+		}
+	}
 	if len(fields) > 1 {
 		return setField(message.Mutable(field).Message(), fields[1:], values)
 	}

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MARETU01/ledger-core/gateway/internal/config"
 	"github.com/MARETU01/ledger-core/gateway/internal/descriptor"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -21,11 +20,10 @@ import (
 )
 
 type routeHandler struct {
-	route          config.Route
-	method         *descriptor.Method
-	conn           grpc.ClientConnInterface
-	timeout        time.Duration
-	paths, queries []fieldBinding
+	grpcMethod string
+	method     *descriptor.Method
+	conn       grpc.ClientConnInterface
+	timeout    time.Duration
 }
 
 func (h *routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -55,27 +53,9 @@ func (h *routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	query, err := parseQuery(r)
-	if err != nil {
-		writeError(w, r, 400, "INVALID_ARGUMENT", err.Error())
-		return
-	}
-	for _, binding := range h.queries {
-		if values, ok := query[binding.source]; ok {
-			if err := setField(request, binding.fields, values); err != nil {
-				writeError(w, r, 400, "INVALID_ARGUMENT", binding.source+": "+err.Error())
-				return
-			}
-			delete(query, binding.source)
-		}
-	}
-	if len(query) > 0 {
-		writeError(w, r, 400, "INVALID_ARGUMENT", "Unmapped query parameter")
-		return
-	}
-	for _, binding := range h.paths {
-		if err := setField(request, binding.fields, []string{r.PathValue(binding.source)}); err != nil {
-			writeError(w, r, 400, "INVALID_ARGUMENT", binding.source+": "+err.Error())
+	if r.Method == http.MethodGet {
+		if err := bindQuery(request, r); err != nil {
+			writeError(w, r, 400, "INVALID_ARGUMENT", err.Error())
 			return
 		}
 	}
@@ -89,7 +69,7 @@ func (h *routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs(pairs...))
-	if err := h.conn.Invoke(ctx, h.route.GRPCMethod, request, response); err != nil {
+	if err := h.conn.Invoke(ctx, h.grpcMethod, request, response); err != nil {
 		code := status.Code(err)
 		if errors.Is(err, context.DeadlineExceeded) {
 			code = codes.DeadlineExceeded
@@ -97,7 +77,7 @@ func (h *routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, context.Canceled) {
 			code = codes.Canceled
 		}
-		slog.Warn("gRPC invocation failed", "route", h.route.ID, "request_id", w.Header().Get("X-Request-ID"), "code", code.String(), "error", err)
+		slog.Warn("gRPC invocation failed", "method", h.grpcMethod, "request_id", w.Header().Get("X-Request-ID"), "code", code.String(), "error", err)
 		writeError(w, r, httpStatus(code), codeName(code), publicMessage(code))
 		return
 	}

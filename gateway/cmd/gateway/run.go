@@ -70,7 +70,7 @@ func run(parent context.Context) error {
 	var workers sync.WaitGroup
 	data, err := load()
 	if err != nil {
-		return fmt.Errorf("load initial routes: %w", err)
+		return fmt.Errorf("load initial services: %w", err)
 	}
 	apply := func(data []byte) error {
 		applyCtx, stop := context.WithTimeout(ctx, 30*time.Second)
@@ -78,7 +78,7 @@ func run(parent context.Context) error {
 		return engine.Apply(applyCtx, data)
 	}
 	if err := apply(data); err != nil {
-		return fmt.Errorf("initial routes: %w", err)
+		return fmt.Errorf("initial services: %w", err)
 	}
 	workers.Go(func() {
 		for {
@@ -91,7 +91,7 @@ func run(parent context.Context) error {
 					err = apply(data)
 				}
 				if err != nil {
-					slog.Warn("route update rejected; retaining active routes", "error", err)
+					slog.Warn("service update rejected; retaining active services", "error", err)
 				}
 			}
 		}
@@ -112,7 +112,7 @@ func run(parent context.Context) error {
 		_ = json.NewEncoder(w).Encode(map[string]any{"ready": ready, "revision": revision})
 	})
 	mux.Handle("/", gateway.Middleware(engine, cfg.APIToken))
-	server := &http.Server{Addr: cfg.ListenAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+	server := &http.Server{Addr: cfg.ListenAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 50 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
 		return err
@@ -124,7 +124,7 @@ func run(parent context.Context) error {
 	case err = <-failed:
 	case <-parent.Done():
 	}
-	shutdownCtx, stop := context.WithTimeout(context.Background(), 35*time.Second)
+	shutdownCtx, stop := context.WithTimeout(context.Background(), 50*time.Second)
 	defer stop()
 	if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil {
 		_ = server.Close()

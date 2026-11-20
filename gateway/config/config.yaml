@@ -13,7 +13,7 @@ nacos:
     ca_file: "${NACOS_CA_FILE:}"
     server_name: "${NACOS_SERVER_NAME:}"
 
-# 路由统一从 Nacos 加载；发布内容参考 routes.example.yml
+# 服务映射统一从 Nacos 加载；Data ID 沿用旧名，发布内容参考 routes.example.yml
 routes_data_id: "${GATEWAY_ROUTES_DATA_ID:gateway-routes.yml}"
 descriptor_dir: "${GATEWAY_DESCRIPTOR_DIR:..}"
 

@@ -54,8 +54,10 @@ com.ledger.account 或 com.ledger.trading
 
 网关启动时读取独立的 `gateway/config/config.yaml`，配置 HTTP 监听、Nacos、上游 TLS、访问 token 及路由 Data ID。启动 YAML 的字段值支持 `${VAR:默认值}` 和 `${VAR}` 环境变量占位符；仅显式声明占位符的字段读取对应进程环境变量，网关不会自动加载 `.env` 文件。可用 `-config` 指定其他启动配置；配置内相对路径以该文件所在目录为基准。服务发现和远端路由共用 YAML 中的 Nacos namespace/group，需与 Java 服务的注册配置对齐。
 
-启动配置在进程启动时加载，修改后需要重启。路由规则统一从 Nacos 订阅，默认 Data ID 为 `gateway-routes.yml`，支持热更新。本地 `config/routes.example.yml` 提供两个 Hello 路由，需发布到 Nacos，运行时不读取本地示例。
+启动配置修改后需要重启。服务映射统一从 Nacos 订阅，默认 Data ID 为 `gateway-routes.yml`。本地 `config/routes.example.yml` 使用 `services` 映射声明服务简称、Nacos 服务名、版本对应的 protobuf service、GET 方法清单和超时，不再逐接口配置路由。
 
-HTTP 请求按已发布路由解析，使用缓存的方法描述构造 dynamicpb 消息，通过复用的 gRPC 连接调用 Java。反射描述只在路由加载阶段读取；Nacos 实例变更独立更新 resolver，不要求重新发布路由。描述文件也可替代反射。
+HTTP 路径固定为 `/api/{版本}/{服务简称}/{方法名}`。POST JSON 通过 protojson 转换；GET 仅允许清单中的只读方法，Query 仅按 `.proto` 原始字段名自动绑定，嵌套路径逐层严格匹配；POST JSON 继续遵循标准 ProtoJSON 字段命名规则。配置的 protobuf service 中所有 unary 方法允许 POST，因此内部方法需要放到其他 protobuf service。外部请求无法指定任意上游地址或 protobuf service。
 
-新路由在独立快照中校验并整体切换，请求只在获取快照和登记使用时短暂加锁。切换不等待旧请求，新请求和 `/readyz` 可读取新快照；旧请求继续使用原快照，全部完成后异步关闭旧连接及服务发现订阅。等待构建的重载可响应 context 取消，提交前也会检查取消状态。关闭引擎时停止接入并等待当前及所有尚未释放的旧快照完成清理。无效更新保留旧版本。路由配置只允许已声明的服务和方法，外部请求不能自由指定上游地址或方法。当前只支持 unary RPC，不支持流式转换。
+配置加载不联系业务服务。首次请求服务版本时，从反射或本地描述文件获取完整协议，构造 dynamicpb 消息并通过复用的 gRPC 连接调用。并发首次访问共享一次最多 5 秒的后台加载，等待者可独立取消；失败不缓存，后续请求可重试。成功协议缓存 1 分钟，过期由下一请求刷新；更新配置 revision 可以立即刷新。Nacos 实例变更独立更新 resolver。
+
+新配置校验通过后整体切换快照，不等待旧请求。每个新快照重新按需建立连接和协议缓存；旧请求和后台协议加载完成后异步关闭旧连接及订阅。无效更新保留旧版本。关闭引擎时停止接入并等待当前及所有旧快照清理。`/readyz` 只代表配置已加载，不检查后端或协议可用性。当前只支持 unary RPC。

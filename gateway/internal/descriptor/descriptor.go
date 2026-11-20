@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -27,11 +26,13 @@ type Method struct {
 	Types      *dynamicpb.Types
 }
 
-func Load(ctx context.Context, conn grpc.ClientConnInterface, fullMethod, filename string) (*Method, error) {
-	service, method, ok := strings.Cut(strings.TrimPrefix(fullMethod, "/"), "/")
-	if !ok {
-		return nil, fmt.Errorf("invalid full method %q", fullMethod)
-	}
+// Service contains the complete input/output types for one configured protobuf service.
+type Service struct {
+	Descriptor protoreflect.ServiceDescriptor
+	Types      *dynamicpb.Types
+}
+
+func LoadService(ctx context.Context, conn grpc.ClientConnInterface, service, filename string) (*Service, error) {
 	var files *protoregistry.Files
 	var err error
 	if filename != "" {
@@ -60,15 +61,15 @@ func Load(ctx context.Context, conn grpc.ClientConnInterface, fullMethod, filena
 	if err != nil {
 		return nil, err
 	}
-	symbol, err := files.FindDescriptorByName(protoreflect.FullName(service + "." + method))
+	symbol, err := files.FindDescriptorByName(protoreflect.FullName(service))
 	if err != nil {
 		return nil, err
 	}
-	md, ok := symbol.(protoreflect.MethodDescriptor)
-	if !ok || md.IsStreamingClient() || md.IsStreamingServer() {
-		return nil, fmt.Errorf("%s must be a unary RPC", fullMethod)
+	sd, ok := symbol.(protoreflect.ServiceDescriptor)
+	if !ok {
+		return nil, fmt.Errorf("%s is not a service", service)
 	}
-	return &Method{Descriptor: md, Types: dynamicpb.NewTypes(files)}, nil
+	return &Service{Descriptor: sd, Types: dynamicpb.NewTypes(files)}, nil
 }
 
 // All requests use a single reflection stream so descriptors come from one backend.

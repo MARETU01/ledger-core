@@ -38,7 +38,7 @@ account-service/           # 账户服务，gRPC 8081，独立 account schema
 trading-service/           # 交易服务，gRPC 8082，独立 trading schema
 gateway/                   # Go 动态网关，独立 Go Modules 构建
   config/config.yaml       # 网关启动配置：监听、Nacos、TLS、token 等
-  config/routes.example.yml # HTTP → gRPC 路由示例，需发布到 Nacos
+  config/routes.example.yml # HTTP → gRPC 服务映射示例，需发布到 Nacos
 db/                        # 按服务划分的 SQL，部署前手动执行
 docs/                      # 架构、运行配置、持久层与开发说明
 ```
@@ -79,7 +79,7 @@ java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar
 | --- | --- | --- |
 | 账户服务 | gRPC `localhost:8081` | 中间件就绪并完成数据库初始化后启动 |
 | 交易服务 | gRPC `localhost:8082` | 中间件就绪并完成数据库初始化后启动 |
-| Go 网关（可选） | HTTP `localhost:8080` | 两个 Java 服务启动并发布 Hello 路由后启动 |
+| Go 网关（可选） | HTTP `localhost:8080` | Nacos 就绪并发布服务映射后即可启动，Java 服务可稍后启动 |
 
 表中是 dev 本地配置及 Nacos 发布示例中的默认端口。设置 `GRPC_PORT` 或修改对应 YAML 后，以服务实际监听端口为准。
 
@@ -109,14 +109,14 @@ grpcurl -plaintext localhost:8082 list
 
 网关对外提供 HTTP/JSON，对内通过 Nacos 发现 Java gRPC 服务，支持反射/描述文件动态调用与路由热更新。它不需要生成业务 Go stub，不参与 Maven 构建；需要 Go 1.27.4。网关独立读取 [gateway/config/config.yaml](gateway/config/config.yaml)，无需导入 `.env`。启动方式及更新路由见[网关指南](gateway/README.md)。
 
-先将 `gateway/config/config.yaml` 中的 `nacos` 地址、namespace、group 和凭据与 Java 服务对齐，将包含 Hello 接口的 `gateway/config/routes.example.yml` 发布到 Nacos：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 `ledger-dev`。再从项目根目录启动：
+先将 `gateway/config/config.yaml` 中的 `nacos` 地址、namespace、group 和凭据与 Java 服务对齐，将服务映射示例 `gateway/config/routes.example.yml` 发布到 Nacos：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 `ledger-dev`。再从项目根目录启动：
 
 ```bash
 cd gateway
 go run ./cmd/gateway
 ```
 
-使用其他配置文件时运行 `go run ./cmd/gateway -config config/config.local.yaml`。配置内相对路径以配置文件所在目录为基准。启动配置修改后重启网关；路由规则支持热更新。启动 YAML 支持 `${变量名:默认值}` 环境变量占位符，默认配置已声明 `GATEWAY_*` 和 `NACOS_*` 变量。
+使用其他配置文件时运行 `go run ./cmd/gateway -config config/config.local.yaml`。配置内相对路径以配置文件所在目录为基准。启动配置修改后重启网关；服务映射支持热更新，协议在首次请求时加载，启动不依赖 Java 服务在线。启动 YAML 支持 `${变量名:默认值}` 环境变量占位符，默认配置已声明 `GATEWAY_*` 和 `NACOS_*` 变量。
 
 ## 中间件与配置
 

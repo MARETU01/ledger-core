@@ -1,20 +1,19 @@
 # 将完整内容发布到 Nacos 的 gateway-routes.yml；网关不读取本文件。
+# 服务级配置替代旧 routes 列表。配置的 protobuf service 中所有 unary 方法允许 POST。
 version: 1
-revision: hello-1
-routes:
-  - id: account-hello
-    http_method: GET
-    http_path: /api/v1/hello/account
+revision: services-1
+services:
+  account:
     target_service: account-service
-    grpc_method: /ledger.account.v1.AccountService/SayHello
+    proto_services:
+      v1: ledger.account.v1.AccountService
+    get_methods:
+      v1: [SayHello]
     timeout: 2s
-    query_fields:
-      name: name
-  - id: trading-hello
-    http_method: GET
-    http_path: /api/v1/hello/trading
+  trading:
     target_service: trading-service
-    grpc_method: /ledger.trading.v1.TradingService/SayHello
+    proto_services:
+      v1: ledger.trading.v1.TradingService
+    get_methods:
+      v1: [SayHello]
     timeout: 3s
-    query_fields:
-      name: name
