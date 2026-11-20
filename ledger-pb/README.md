@@ -1,6 +1,6 @@
 # Protobuf 协议
 
-协议按业务领域和版本组织，不单独部署。账户与交易协议各自提供 SayHello 示例 RPC，分别拥有自己的请求和响应类型；流程见 [Hello 示例](../docs/hello.md)。
+协议按业务领域和版本组织，不单独部署。账户与交易协议各自提供 SayHello 示例 RPC，分别拥有自己的请求和响应类型。
 
 ```text
 src/main/proto/ledger/
@@ -21,4 +21,6 @@ RPC 请求和响应统一使用 `<方法名>Request`、`<方法名>Response`，�
 
 构建命令：`mvn -pl ledger-pb -am compile`。生成代码位于 `target/generated-sources/protobuf`，不要手动修改或提交。
 
-移动文件后同步调整 proto import；修改 Java package 后同步调整 Java import；修改 Protobuf package、service 或 rpc 名称后，还需同步修改网关的完整 gRPC 方法名和调用方。删除或移动协议后使用 `mvn clean verify`，清理旧生成代码和 JAR。
+移动文件后同步调整 proto import；修改 Java package 后同步调整 Java import；修改 Protobuf package 或 service 名称后，同步修改网关服务映射中的 `proto_services` 和调用方。修改 rpc 名称会改变网关 URL 中的方法名，GET 方法还需同步更新 `get_methods`。删除或移动协议后使用 `mvn clean verify`，清理旧生成代码和 JAR。
+
+协议新增字段使用新编号；删除字段时通过 `reserved` 保留原编号和名称。对外与内部 RPC 按 protobuf service 分开组织，当前网关会对已配置 service 中的全部 unary 方法开放 POST。滚动发布时需验证新旧协议兼容及网关缓存刷新行为，详见[网关指南](../gateway/README.md#协议缓存发现与热更新)。

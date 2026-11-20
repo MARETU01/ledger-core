@@ -2,6 +2,19 @@
 
 面向资金账户与模拟证券交易的 Java 后端基础框架。当前提供工程分层、中间件接入和 gRPC 服务基础配置，尚未实现开户、记账、下单等业务。
 
+## 项目现状
+
+当前处于基础设施与接口联调阶段，可通过 Go 网关调用交易服务，再由交易服务调用账户服务。Hello 示例不读写数据库；数据库脚本仅创建两个 schema。
+
+| 范围 | 已实现 | 待建设 |
+| --- | --- | --- |
+| Java 服务 | gRPC 服务端、Nacos 注册与发现、虚拟线程执行器 | 账户与交易用例、业务校验、自动化测试 |
+| 动态网关 | HTTP/JSON 转换、协议按需加载、服务发现、路由热更新 | 用户身份与权限体系、流量治理 |
+| 数据与消息 | PostgreSQL、MyBatis-Plus、Redis、Kafka 客户端配置 | 业务表、账务规则、业务幂等、可靠事件投递 |
+| 运行交付 | 环境配置、手动 SQL、构建与网关测试命令 | 数据库迁移管理、持续集成、对账与恢复流程 |
+
+当前架构及约束见[架构说明](docs/architecture.md)；面向业务落地和生产运行的建议见[架构演进路线](docs/roadmap.md)。路线中的能力均需后续实现与验证。
+
 ## 文档导航
 
 | 任务 | 文档 |
@@ -9,11 +22,11 @@
 | 首次运行、启动服务和验证 gRPC 服务 | 本页“本地启动”和“gRPC 验证” |
 | 启动 Go 动态 HTTP → gRPC 网关、配置动态路由 | [网关指南](gateway/README.md) |
 | 了解模块依赖、调用链和当前边界 | [架构说明](docs/architecture.md) |
+| 了解架构差距、建设顺序和阶段验收目标 | [架构演进路线](docs/roadmap.md) |
 | 配置数据库、Nacos、Kafka、Redis 或复用已有中间件 | [配置与运行](docs/configuration.md) |
 | 初始化数据库、手动执行 SQL | [数据库 SQL](db/README.md) |
 | 使用 MyBatis-Plus、新增表、Mapper 和事务 | [数据库访问约定](docs/persistence.md) |
 | 修改协议、新增功能、构建验证和排查问题 | [开发与排错](docs/development.md) |
-| 熟悉接口开发及跨服务调用 | [Hello 示例](docs/hello.md) |
 | 查看按业务领域与版本划分的协议目录 | [协议说明](ledger-pb/README.md) |
 
 ## 技术版本
@@ -45,7 +58,7 @@ docs/                      # 架构、运行配置、持久层与开发说明
 
 服务通过 `interfaces.grpc → application → domain` 组织业务，基础设施实现放在 `infrastructure`。当前包含必要基础配置和 Hello 示例接口，业务分层随实际用例添加。禁止跨服务直接访问对方 schema。
 
-日常业务开发主要修改两个 `*-service`；每个服务在自己的 POM 中声明中间件依赖。`application.yml` 保留必要启动配置和 Nacos 公共参数，dev 的完整运行配置放在本地 `application-dev.yml`，Nacos 仅用于注册与发现；test/prod 通过对应的 `application-test.yml` / `application-prod.yml` 导入 Nacos 配置，发布参数参考各服务的 `application-dev.yml`，步骤见 [Nacos 配置中心](docs/configuration.md#nacos-配置中心)。Nacos 注册与 MyBatis 插件配置类位于各服务的 `infrastructure.config`。协议维护在 `ledger-pb`，无需单独启动。
+日常业务开发主要修改两个 `*-service`，协议维护在 `ledger-pb`。Java 默认使用 dev 本地配置；test/prod 从 Nacos 导入运行配置。文件职责、环境切换及发布步骤统一见[配置与运行](docs/configuration.md)。
 
 ## 本地启动
 
@@ -53,7 +66,7 @@ docs/                      # 架构、运行配置、持久层与开发说明
 
 启动服务前需完成数据库初始化：按[数据库 SQL 说明](db/README.md)执行 `db/account/001_create_schema.sql` 和 `db/trading/001_create_schema.sql`。后续表结构变更也需手动执行对应 SQL，服务启动时不自动初始化数据库。
 
-Java 服务默认使用 `dev`，namespace ID 为 `ledger-dev`。测试或生产环境通过 `--spring.profiles.active=test` / `prod` 或 `SPRING_PROFILES_ACTIVE` 切换，默认 namespace 分别为 `ledger-test` / `ledger-prod`；可用 `NACOS_NAMESPACE` 覆盖实际 ID。详见[环境切换](docs/configuration.md#环境切换)。公共配置通过 `spring.profiles.default: dev` 设置默认环境，Spring Boot 自动加载对应的 `application-{profile}.yml`，显式选择 test/prod 时不会加载 dev 配置。
+Java 服务默认使用 `dev`，namespace ID 为 `ledger-dev`。测试或生产环境通过 `--spring.profiles.active=test` / `prod` 或 `SPRING_PROFILES_ACTIVE` 切换；完整规则见[环境切换](docs/configuration.md#环境切换)。
 
 ### 启动服务
 
@@ -103,7 +116,7 @@ grpcurl -plaintext localhost:8081 list
 grpcurl -plaintext localhost:8082 list
 ```
 
-完整 Hello 调用、启动及开发步骤见 [Hello 示例](docs/hello.md)。业务协议按 `ledger/account/v1`、`ledger/trading/v1` 组织，详见[协议说明](ledger-pb/README.md)。
+业务协议按 `ledger/account/v1`、`ledger/trading/v1` 组织，详见[协议说明](ledger-pb/README.md)。
 
 ## Go 动态网关
 
@@ -125,15 +138,19 @@ go run ./cmd/gateway
 - Redis：预置 `StringRedisTemplate`；尚未缓存业务数据。
 - Nacos：dev 仅使用注册与发现，配置中心已关闭。test/prod 先读取 `LEDGER_GROUP` 下的 `ledger-infrastructure.yml`，再读取自身的 `account-service.yml` / `trading-service.yml`，需在启动前发布。环境 namespace 默认分别为 `ledger-dev`、`ledger-test`、`ledger-prod`。
 
-Java 的 Nacos 默认连接配置位于各服务本地 YAML；dev 运行参数在各服务的 `application-dev.yml`，test/prod 发布参数参考同一份服务配置，步骤见 [Nacos 配置中心](docs/configuration.md#nacos-配置中心)。Go 网关配置见 [gateway/config/config.yaml](gateway/config/config.yaml)。接入中间件时，按[配置与运行](docs/configuration.md#复用已有中间件)填写地址、认证及 TLS 配置。
+接入已有中间件时，按[配置与运行](docs/configuration.md#复用已有中间件)填写地址、认证及 TLS 配置。
 
 ## 构建验证
 
 ```bash
 # 编译、打包 Java 模块，无需运行中间件。
 mvn verify
+# Go 网关独立构建和测试，从项目根目录执行：
+go -C gateway test ./...
 ```
 
 两个 Java 服务的 gRPC 请求处理均接入虚拟线程执行器，由 `spring.threads.virtual.enabled` 控制；dev 配置已开启，test/prod 发布公共配置时参考同一设置。Netty 网络 I/O 仍使用事件循环线程。
 
-当前 Java 模块未包含自动化测试。服务启动可按上方“gRPC 验证”检查；Hello 跨服务调用可按 [Hello 示例](docs/hello.md) 手动联调。Go 网关的测试命令见[网关指南](gateway/README.md)。
+当前 Java 模块未包含自动化测试。服务启动可按上方“gRPC 验证”检查；Go 网关的测试命令与 HTTP 调用示例见[网关指南](gateway/README.md)。
+
+构建通过仅表示编译与打包完成；网关测试使用测试后端，不验证真实 Nacos 或 Java 服务。Hello 联调可验证实际调用链，但不覆盖数据库读写、消息收发或资金正确性。

@@ -2,6 +2,8 @@
 
 [返回项目首页](../README.md)
 
+首次接触项目可先阅读[当前架构](architecture.md)，按[项目首页](../README.md#本地启动)启动服务。业务建设顺序与阶段目标见[架构演进路线](roadmap.md)。
+
 ## 构建与启动
 
 从 Maven 根 POM 导入 IDE 项目，Project SDK 与 Maven Runner 都选择 JDK 25。生成的 Protobuf Java 文件位于 `ledger-pb/target`，由构建维护，不提交到 Git。
@@ -40,6 +42,18 @@ mvn -pl account-service -am package
 
 按[数据库访问约定](persistence.md)在根目录 `db/` 添加并手动执行 SQL，再添加实体与 Mapper。schema 归属、主键、版本字段由业务明确声明。多个 Mapper 操作需要原子性时，在被其他 Spring Bean 调用的 application 层公共方法上标记 `@Transactional`。
 
+## 新增业务用例
+
+实现前先明确数据归属、业务不变量、合法状态迁移和失败语义，按[业务分层约定](architecture.md#业务分层与数据归属)组织代码。涉及资金与跨服务流程时，参考[架构演进路线](roadmap.md)确定一致性方案。
+
+1. 明确写入由哪个服务负责，定义 RPC 请求、响应和错误状态；检查方法是否需要通过网关对外开放。
+2. 设计表约束和本地事务，将余额、冻结、流水与幂等记录等需要原子更新的数据放入同一事务边界。
+3. 定义稳定的业务操作标识、重复提交行为及结果查询方式；请求超时后也要能够确认执行结果。
+4. 如需业务事件，明确投递恢复、消费去重及乱序处理；跨服务流程记录可恢复的中间状态。
+5. 增加与行为相关的测试，至少覆盖成功、非法状态、重复请求、并发竞争及事务回滚；涉及 RPC 或事件时补充超时与恢复场景。
+
+当前 Java 测试基础设施仍需随首个业务用例建立。数据库访问文档中的示例实体和表仅用于说明用法，不能直接作为资金模型。
+
 ## Kafka 与 Redis 扩展入口
 
 Kafka 当前使用字符串 key/value 序列化，后续定义事件格式时需要同步调整生产者和消费者。项目不创建业务 topic，新增 topic 应通过明确的配置或运维步骤创建。`enable.idempotence=true` 解决生产者协议层的重复写入问题，消费处理仍需业务去重；数据库事务也不会自动覆盖 Kafka 发送。
@@ -53,7 +67,7 @@ Redis 可注入 `StringRedisTemplate`，业务自行约定 key 前缀、序列�
 mvn verify
 ```
 
-当前 Java 模块未包含自动化测试；`mvn verify` 成功表示构建通过，不代表运行时中间件已连通。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查 gRPC 服务是否响应；Hello 跨服务调用按 [Hello 示例](hello.md) 联调。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
+当前 Java 模块未包含自动化测试；`mvn verify` 成功表示构建通过，不代表运行时中间件已连通。启动中间件和两个服务后，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查 gRPC 服务是否响应。Go 网关仍有独立测试，命令见下方“Go 网关开发”。
 
 ## 常见问题
 
@@ -87,7 +101,7 @@ mvn verify
 
 网关使用独立 Go Modules，与 Maven 分开构建和测试。进入 `gateway/` 后执行 `go test ./...`、`go vet ./...`，需要并发检测时执行 `CGO_ENABLED=1 go test -race ./...`（需要 C 编译器）。
 
-网关测试使用测试后端，不要求运行 Java 服务或 Nacos。Hello 的真实环境调用链按 [Hello 示例](hello.md) 联调。
+网关测试使用测试后端，不要求运行 Java 服务或 Nacos。真实环境的 HTTP 调用示例见[网关指南](../gateway/README.md#启动与验证)。
 
 启动配置在 `gateway/config/config.yaml`，服务映射示例在 `gateway/config/routes.example.yml`，声明账户和交易服务，需发布到 Nacos 的 `gateway-routes.yml`。网关无需导入 `.env`；在 IDE 中将工作目录设为 `gateway/`，或通过 `-config` 指定启动配置文件。监听、Nacos、TLS 和 token 等启动配置修改后需重启，Nacos 服务映射支持热更新。个人配置可复制为已忽略的 `gateway/config/config.local.yaml`，旧配置中的 `routes_source`、`routes_file` 字段需要删除。
 
