@@ -4,10 +4,10 @@ import com.ledger.pb.account.v1.AccountServiceGrpc;
 import com.ledger.pb.account.v1.SayHelloResponse;
 import com.ledger.pb.account.v1.SayHelloRequest;
 import io.grpc.stub.StreamObserver;
-import org.springframework.stereotype.Service;
+import org.springframework.grpc.server.service.GrpcService;
 
 /** gRPC 接口入口，职责类似 MVC 的 Controller。 */
-@Service
+@GrpcService
 public class AccountHelloEndpoint extends AccountServiceGrpc.AccountServiceImplBase {
     @Override
     public void sayHello(SayHelloRequest request, StreamObserver<SayHelloResponse> observer) {

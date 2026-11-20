@@ -7,15 +7,13 @@ import com.ledger.pb.trading.v1.TradingServiceGrpc;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
-import org.springframework.stereotype.Service;
+import lombok.RequiredArgsConstructor;
+import org.springframework.grpc.server.service.GrpcService;
 
-@Service
+@GrpcService
+@RequiredArgsConstructor
 public class TradingHelloEndpoint extends TradingServiceGrpc.TradingServiceImplBase {
     private final AccountGrpcClient accountClient;
-
-    public TradingHelloEndpoint(AccountGrpcClient accountClient) {
-        this.accountClient = accountClient;
-    }
 
     @Override
     public void sayHello(SayHelloRequest request, StreamObserver<SayHelloResponse> observer) {

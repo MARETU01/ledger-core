@@ -40,6 +40,7 @@
 | Spring gRPC | 1.1.2，由 Spring Boot 管理 |
 | Go（网关） | 1.27.4 |
 | MyBatis-Plus | 3.5.18.1，Spring Boot 4 starter |
+| Lombok | 由 Spring Boot 管理，仅用于编译期代码生成 |
 
 Java 依赖版本以根 [pom.xml](pom.xml) 及其 BOM 为准，Go 版本以 [gateway/go.mod](gateway/go.mod) 为准。PostgreSQL、Nacos、Kafka 和 Redis 由运行环境提供，仓库不再附带中间件 Compose 文件。
 
