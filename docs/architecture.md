@@ -12,12 +12,14 @@ flowchart LR
     Gateway -->|gRPC SayHello| Trading[trading-service :8082]
     Gateway -->|gRPC SayHello| Account[account-service :8081]
     Trading -->|gRPC SayHello| Account
-    Gateway -.->|订阅服务映射与发现实例| Nacos[Nacos]
+    Gateway -.->|自身注册、订阅服务映射与发现实例| Nacos[Nacos]
     Trading -.->|注册与发现| Nacos
     Account -.->|注册| Nacos
 ```
 
 图中实线表示现有 Hello 请求链，虚线表示注册、发现和网关配置依赖。test/prod 的 Java 服务还从 Nacos 导入运行配置。PostgreSQL 在启动时由 Flyway 执行迁移；Kafka 和 Redis 当前仅接入客户端配置，三者均未参与 Hello 调用链。
+
+Go 网关在服务配置加载完成并开始监听后，以 `ledger-gateway` HTTP 临时实例注册到相同 Nacos namespace/group，退出时先注销再排空 HTTP 请求；可通过 `registration.enabled` 关闭自身注册。注册地址支持配置可达 IP 和映射端口，默认使用实际监听端口。该注册用于实例发现，尚未实现 Prometheus 指标出口。
 
 ## 模块与职责
 

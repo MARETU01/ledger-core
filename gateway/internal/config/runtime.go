@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,10 +18,19 @@ type Runtime struct {
 	RoutesDataID  string `yaml:"routes_data_id"`
 	DescriptorDir string `yaml:"descriptor_dir"`
 
-	APIToken string `yaml:"api_token"`
-	StateDir string `yaml:"state_dir"`
-	GRPCTLS  TLS    `yaml:"grpc_tls"`
-	Nacos    Nacos  `yaml:"nacos"`
+	APIToken     string       `yaml:"api_token"`
+	StateDir     string       `yaml:"state_dir"`
+	GRPCTLS      TLS          `yaml:"grpc_tls"`
+	Nacos        Nacos        `yaml:"nacos"`
+	Registration Registration `yaml:"registration"`
+}
+
+type Registration struct {
+	Enabled     bool   `yaml:"enabled"`
+	ServiceName string `yaml:"service_name"`
+	IP          string `yaml:"ip"`
+	Port        uint16 `yaml:"port"`
+	Cluster     string `yaml:"cluster"`
 }
 
 type TLS struct {
@@ -47,7 +57,8 @@ func LoadRuntime(filename string) (*Runtime, error) {
 	cfg := Runtime{
 		ListenAddr:   "0.0.0.0:8080",
 		RoutesDataID: "gateway-routes.yml", DescriptorDir: "..",
-		Nacos: Nacos{ServerAddr: "localhost:8848", Namespace: "ledger-dev", Group: "LEDGER_GROUP"},
+		Nacos:        Nacos{ServerAddr: "localhost:8848", Namespace: "ledger-dev", Group: "LEDGER_GROUP"},
+		Registration: Registration{Enabled: true, ServiceName: "ledger-gateway", Cluster: "DEFAULT"},
 	}
 	data, err := io.ReadAll(io.LimitReader(f, MaxConfigBytes+1))
 	if err != nil {
@@ -88,6 +99,20 @@ func LoadRuntime(filename string) (*Runtime, error) {
 	}
 	if cfg.GRPCTLS.CAFile != "" && !cfg.GRPCTLS.Enabled {
 		return nil, fmt.Errorf("grpc_tls.ca_file requires grpc_tls.enabled: true")
+	}
+	if cfg.Registration.Enabled {
+		if strings.TrimSpace(cfg.Registration.ServiceName) == "" || strings.TrimSpace(cfg.Registration.ServiceName) != cfg.Registration.ServiceName || strings.Contains(cfg.Registration.ServiceName, "@@") {
+			return nil, fmt.Errorf("registration.service_name must be nonblank, without surrounding whitespace or @@")
+		}
+		if strings.TrimSpace(cfg.Registration.Cluster) == "" || strings.TrimSpace(cfg.Nacos.Group) == "" {
+			return nil, fmt.Errorf("registration.cluster and nacos.group must not be blank")
+		}
+		if cfg.Registration.IP != "" {
+			ip, err := netip.ParseAddr(cfg.Registration.IP)
+			if err != nil || ip.Zone() != "" || (!ip.IsGlobalUnicast() && !ip.IsLoopback()) {
+				return nil, fmt.Errorf("registration.ip must be a concrete unicast IP address")
+			}
+		}
 	}
 	base, err := filepath.Abs(filepath.Dir(filename))
 	if err != nil {

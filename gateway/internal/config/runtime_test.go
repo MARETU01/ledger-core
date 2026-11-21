@@ -29,6 +29,39 @@ func TestRuntimeDefaultsAndPaths(t *testing.T) {
 	if cfg.DescriptorDir != filepath.Dir(base) || cfg.StateDir != "" {
 		t.Fatalf("paths are not relative to config file: %+v", cfg)
 	}
+	if !cfg.Registration.Enabled || cfg.Registration.ServiceName != "ledger-gateway" || cfg.Registration.Cluster != "DEFAULT" || cfg.Registration.IP != "" || cfg.Registration.Port != 0 {
+		t.Fatalf("unexpected registration defaults: %+v", cfg.Registration)
+	}
+}
+
+func TestRuntimeRegistration(t *testing.T) {
+	cfg, err := LoadRuntime(runtimeFile(t, `registration:
+  enabled: true
+  service_name: edge-gateway
+  ip: 192.0.2.10
+  port: 18080
+  cluster: EDGE
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Registration.ServiceName != "edge-gateway" || cfg.Registration.IP != "192.0.2.10" || cfg.Registration.Port != 18080 || cfg.Registration.Cluster != "EDGE" {
+		t.Fatalf("registration settings not loaded: %+v", cfg.Registration)
+	}
+	for _, data := range []string{
+		"registration: {service_name: ''}", "registration: {service_name: ' ledger-gateway'}",
+		"registration: {service_name: 'GROUP@@gateway'}", "registration: {cluster: ''}",
+		"registration: {ip: 0.0.0.0}", "registration: {ip: '::'}", "registration: {ip: localhost}",
+		"registration: {ip: 224.0.0.1}", "registration: {port: 65536}", "registration: {port: -1}",
+		"registration: {unknown: value}", "nacos: {group: ''}",
+	} {
+		if _, err := LoadRuntime(runtimeFile(t, data)); err == nil {
+			t.Fatalf("invalid registration accepted: %s", data)
+		}
+	}
+	if _, err := LoadRuntime(runtimeFile(t, "registration: {enabled: false, service_name: '', ip: invalid}")); err != nil {
+		t.Fatalf("disabled registration validated unused settings: %v", err)
+	}
 }
 
 func TestRuntimeSettings(t *testing.T) {

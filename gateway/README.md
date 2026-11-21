@@ -21,6 +21,10 @@ go run ./cmd/gateway
 
 默认监听 `0.0.0.0:8080`，支持 `-config config/config.local.yaml` 选择个人启动配置；不会自动加载 `.env`。初始服务配置不存在或格式无效时退出。启动阶段不连接业务服务，不检查反射或描述文件，账户和交易服务可以稍后启动。
 
+网关默认在加载有效服务配置并开始 HTTP 监听后，注册为同一 Nacos namespace/group 下的 `ledger-gateway` 临时实例，集群默认 `DEFAULT`、权重为 1，元数据为 `protocol=http`、`metrics_enabled=false`。注册失败会清理可能已注册的实例并停止 HTTP 服务；正常退出时先注销再等待已有请求结束，之后关闭 Nacos 客户端。强制终止依赖 Nacos 的临时实例失效机制。控制台可在相应 namespace 的 `LEDGER_GROUP` 分组查看实例；HTTP 就绪状态仍通过 `/readyz` 验证。
+
+默认注册实际监听端口；具体监听 IP 会直接用于注册，`0.0.0.0` / `::` 通配监听时使用 Nacos SDK 的本机 IP 检测。多网卡、VPN、容器或端口映射部署需显式配置 `registration.ip` 和必要的 `registration.port`，保证调用方能访问注册地址；`127.0.0.1` 仅适合同机访问。不会注册通配、组播或链路本地地址。注册不会创建网关业务路由，也不会使网关成为 Java gRPC 下游。当前未提供 `/metrics`，后续接入 Prometheus 时再增加指标出口及相应元数据。
+
 以下 HTTP 示例使用 Bash：
 
 ```bash
@@ -135,6 +139,9 @@ Nacos 配置热更新只做格式校验，不联系后端验证方法或协议�
 | YAML 字段 | 默认值或作用 |
 | --- | --- |
 | `listen_addr` | `0.0.0.0:8080` |
+| `registration.enabled` | 默认 true；false 仅关闭自身注册，仍读取 Nacos 配置并发现下游 |
+| `registration.service_name` / `registration.cluster` | 默认 ledger-gateway / DEFAULT，使用 `nacos.namespace` 和 `nacos.group` |
+| `registration.ip` / `registration.port` | IP 默认取具体监听地址或由 SDK 检测；端口默认 0，表示使用实际监听端口；支持显式配置可达 IP 和映射端口 |
 | `routes_data_id` | `gateway-routes.yml` |
 | `descriptor_dir` | `..`，默认解析到 `gateway/`，作为描述文件的相对路径基准 |
 | `api_token` | 可选固定 Bearer token，默认关闭 |
@@ -174,6 +181,8 @@ go run ./cmd/gateway
 | 环境变量 | YAML 字段 |
 | --- | --- |
 | `GATEWAY_LISTEN_ADDR` | `listen_addr` |
+| `GATEWAY_REGISTER_ENABLED` / `GATEWAY_SERVICE_NAME` | `registration.enabled` / `registration.service_name` |
+| `GATEWAY_REGISTER_IP` / `GATEWAY_REGISTER_CLUSTER` | `registration.ip` / `registration.cluster`；映射端口通过 YAML 的 `registration.port` 配置 |
 | `GATEWAY_ROUTES_DATA_ID` | `routes_data_id` |
 | `GATEWAY_DESCRIPTOR_DIR` | `descriptor_dir` |
 | `GATEWAY_API_TOKEN` / `GATEWAY_STATE_DIR` | `api_token` / `state_dir` |

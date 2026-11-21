@@ -1,6 +1,17 @@
 # 网关启动配置；相对路径以本文件所在目录为基准。修改后重启网关。
 listen_addr: "${GATEWAY_LISTEN_ADDR:0.0.0.0:8080}"
 
+# 启动就绪后注册为 HTTP 临时实例，退出时先注销再等待请求结束。
+registration:
+  enabled: "${GATEWAY_REGISTER_ENABLED:true}"
+  service_name: "${GATEWAY_SERVICE_NAME:ledger-gateway}"
+  # 留空时取具体监听 IP；通配监听时使用 Nacos SDK 自动检测的本机 IP。
+  # 多网卡或容器部署应显式指定其他机器能够访问的地址。
+  ip: "${GATEWAY_REGISTER_IP:}"
+  # 0 使用实际监听端口；端口映射部署可显式指定对外端口。
+  port: 0
+  cluster: "${GATEWAY_REGISTER_CLUSTER:DEFAULT}"
+
 nacos:
   server_addr: "${NACOS_SERVER_ADDR:localhost:8848}"
   # 与 Java dev 环境保持一致；test/prod 使用对应的 namespace ID

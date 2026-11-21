@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -118,20 +117,5 @@ func run(parent context.Context) error {
 		return err
 	}
 	slog.Info("gateway listening", "address", listener.Addr().String(), "routes_data_id", cfg.RoutesDataID)
-	failed := make(chan error, 1)
-	go func() { failed <- server.Serve(listener) }()
-	select {
-	case err = <-failed:
-	case <-parent.Done():
-	}
-	shutdownCtx, stop := context.WithTimeout(context.Background(), 50*time.Second)
-	defer stop()
-	if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil {
-		_ = server.Close()
-		return shutdownErr
-	}
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
-	}
-	return nil
+	return serveGateway(parent, server, listener, naming, cfg)
 }
