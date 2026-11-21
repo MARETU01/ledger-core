@@ -6,6 +6,8 @@
 
 对外路径统一为 `/api/{版本}/{服务简称}/{方法名}`。只配置服务对应关系，新增已开放 protobuf service 中的 unary 方法无需添加 HTTP 路由。
 
+首次启动阅读[启动与验证](#启动与验证)，配置字段见[配置项](#配置项)，请求格式见[请求参数](#请求参数)，运行行为见[协议缓存、发现与热更新](#协议缓存发现与热更新)。Java 服务启动步骤见[项目首页](../README.md#本地启动)。
+
 ## 启动与验证
 
 1. 准备 Nacos，调整 [config/config.yaml](config/config.yaml) 的地址、namespace、group 和凭据。
@@ -19,6 +21,8 @@ go run ./cmd/gateway
 
 默认监听 `0.0.0.0:8080`，支持 `-config config/config.local.yaml` 选择个人启动配置；不会自动加载 `.env`。初始服务配置不存在或格式无效时退出。启动阶段不连接业务服务，不检查反射或描述文件，账户和交易服务可以稍后启动。
 
+以下 HTTP 示例使用 Bash：
+
 ```bash
 curl -fsS 'http://localhost:8080/healthz'
 curl -fsS 'http://localhost:8080/readyz'
@@ -27,6 +31,18 @@ curl -fsS 'http://localhost:8080/api/v1/account/SayHello?name=Alice'
 curl -fsS -H 'Content-Type: application/json' \
   -d '{"name":"Alice"}' 'http://localhost:8080/api/v1/account/SayHello'
 ```
+
+PowerShell 使用 `Invoke-RestMethod`，避免 Windows PowerShell 中 `curl` 别名及 JSON 参数转义的差异：
+
+```powershell
+Invoke-RestMethod 'http://localhost:8080/healthz'
+Invoke-RestMethod 'http://localhost:8080/readyz'
+Invoke-RestMethod 'http://localhost:8080/api/v1/account/SayHello?name=Alice'
+$body = @{ name = 'Alice' } | ConvertTo-Json -Compress
+Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/v1/account/SayHello' -ContentType 'application/json' -Body $body
+```
+
+账户示例预期返回 `message: Hello, Alice!` 和 `service: account-service`。如配置了 `api_token`，业务请求还需提供 `Authorization: Bearer <token>`；Bash 使用 `-H`，PowerShell 使用 `-Headers @{ Authorization = 'Bearer <token>' }`。
 
 `/healthz` 表示 HTTP 进程可响应；`/readyz` 返回生效的配置 revision，只表示服务映射已加载，不表示后端或协议可用。交易接口为 `/api/v1/trading/SayHello`，其实现仍需调用账户服务。
 
@@ -87,7 +103,7 @@ GET 不接受非空白 body。POST 只接受 JSON body，不接受 Query 参数�
 
 成功协议缓存 1 分钟，过期后由下一次请求刷新；缓存期间新增方法可能暂时返回 404。可以更新 revision 立即使新请求使用空缓存，避免等待过期。部署新接口时，先确保对应实例已实现方法；滚动发布的协议不一致仍需通过发布流程或独立服务名隔离。
 
-反射先使用 v1，不支持时尝试 v1alpha。反射服务应在后端内部开放给网关。关闭反射时，可从项目根目录生成描述文件：
+反射先使用 v1，不支持时尝试 v1alpha。反射服务应在后端内部开放给网关。关闭反射时，先准备可用的 `protoc`，再从项目根目录生成描述文件。Bash 示例：
 
 ```bash
 mkdir -p gateway/descriptors
@@ -95,6 +111,13 @@ protoc -I ledger-grpc/src/main/proto \
   --include_imports \
   --descriptor_set_out=gateway/descriptors/account.pb \
   ledger/account/v1/account_service.proto
+```
+
+PowerShell 示例：
+
+```powershell
+New-Item -ItemType Directory -Force gateway/descriptors | Out-Null
+protoc -I ledger-grpc/src/main/proto --include_imports --descriptor_set_out=gateway/descriptors/account.pb ledger/account/v1/account_service.proto
 ```
 
 在对应服务配置 `descriptor_sets.v1: descriptors/account.pb`。默认 `descriptor_dir: ..` 相对启动配置文件目录解析为 `gateway/`；描述文件路径再相对于它解析。文件需包含所有依赖和 Any 自定义消息。描述上限 8 MiB，反射最多加载 256 个文件。文件修改在缓存刷新后读取，更新 revision 可以立即刷新。文件不存在或内容无效会在请求时失败，不影响网关启动。
@@ -209,8 +232,19 @@ internal/
 ```bash
 go test ./...
 go vet ./...
-# 需要可用的 C 编译器和 CGO。
+```
+
+需要并发检测时，先准备可用的 C 编译器，再启用 CGO。Bash：
+
+```bash
 CGO_ENABLED=1 go test -race ./...
+```
+
+PowerShell：
+
+```powershell
+$env:CGO_ENABLED = '1'
+go test -race ./...
 ```
 
 默认测试不需要中间件，后端动态构造协议，不依赖业务 stub。覆盖配置校验、自动路由、Query 自动转换、JSON/请求体限制、HTTP 方法限制、超时/错误、metadata、后端离线启动与恢复、描述文件失败重试、并发冷请求、取消等待者、协议加载期间热更新，以及关闭时等待当前和旧快照的请求完成。

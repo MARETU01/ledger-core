@@ -1,6 +1,8 @@
 # ledger-core
 
-面向资金账户与模拟证券交易的 Java 后端基础框架。当前提供工程分层、中间件接入和 gRPC 服务基础配置，尚未实现开户、记账、下单等业务。
+面向资金账户与模拟证券交易的后端基础框架，使用 Java gRPC 服务与 Go 动态网关。当前提供工程分层、中间件接入和服务通信能力，尚未实现开户、记账、下单等业务。
+
+现有示例调用链：`HTTP 客户端 → Go 网关 → trading-service → account-service`。也可绕过网关直接调用 Java gRPC 接口。
 
 ## 项目现状
 
@@ -19,7 +21,8 @@ Java 模块当前没有自动化测试及测试依赖；Go 网关保留独立测
 
 | 任务 | 文档 |
 | --- | --- |
-| 首次运行、启动服务和验证 gRPC 服务 | 本页“本地启动”和“gRPC 验证” |
+| 仅构建、不启动中间件 | 本页[构建验证](#构建验证) |
+| 首次运行、启动服务和验证 gRPC 服务 | 本页[本地启动](#本地启动)和[gRPC 验证](#grpc-验证) |
 | 启动 Go 动态 HTTP → gRPC 网关、配置动态路由 | [网关指南](gateway/README.md) |
 | 了解模块依赖、调用链和当前边界 | [架构说明](docs/architecture.md) |
 | 了解架构差距、建设顺序和阶段验收目标 | [架构演进路线](docs/roadmap.md) |
@@ -29,11 +32,12 @@ Java 模块当前没有自动化测试及测试依赖；Go 网关保留独立测
 | 修改协议、新增功能、构建验证和排查问题 | [开发与排错](docs/development.md) |
 | 使用共享客户端、配置调用策略或维护协议 | [gRPC 模块指南](ledger-grpc/README.md) |
 
-## 技术版本
+## 开发环境
 
 | 组件 | 版本 |
 | --- | --- |
-| JDK | 25 |
+| JDK | 25，Maven Enforcer 限定 `[25,26)` |
+| Maven | 3.9+ |
 | Spring Boot | 4.1.2 |
 | Spring Cloud | 2025.1.4 |
 | Spring Cloud Alibaba | 2025.1.0.0 |
@@ -43,7 +47,7 @@ Java 模块当前没有自动化测试及测试依赖；Go 网关保留独立测
 | Flyway | 由 Spring Boot 管理，包含 PostgreSQL 支持模块 |
 | Lombok | 由 Spring Boot 管理，仅用于编译期代码生成 |
 
-Java 依赖版本以根 [pom.xml](pom.xml) 及其 BOM 为准，Go 版本以 [gateway/go.mod](gateway/go.mod) 为准。PostgreSQL、Nacos、Kafka 和 Redis 由运行环境提供，仓库不再附带中间件 Compose 文件。
+Java 依赖版本以根 [pom.xml](pom.xml) 及其 BOM 为准，Go 版本以 [gateway/go.mod](gateway/go.mod) 为准。PostgreSQL、Nacos、Kafka 和 Redis 由运行环境提供，仓库未附带中间件 Compose 文件。
 
 ## 工程结构
 
@@ -68,9 +72,9 @@ docs/                      # 架构、运行配置、持久层与开发说明
 
 启动前完成以下准备：
 
-1. 创建 Nacos namespace，ID 为 `ledger-dev`；默认地址 `localhost:8848`，Group 为 `LEDGER_GROUP`。
-2. 核对两个服务的 `application-dev.yml`，填写实际数据库、Nacos、Redis 和 Kafka 参数，无需 `.env`。
-3. 准备 PostgreSQL 数据库与登录角色，并授予所属 schema 的迁移权限；服务启动时由 Flyway 自动创建 schema、记录并执行迁移。已有数据库先按[数据库迁移](db/README.md)核对接入条件。
+1. 准备 PostgreSQL 数据库与登录角色，按[首次初始化](db/README.md#首次初始化)授予迁移权限。服务启动时由 Flyway 自动创建 schema、记录并执行迁移，无需手动执行仓库内的 SQL；已有数据库先核对[接入条件](db/README.md#接入已有数据库)。
+2. 创建 Nacos namespace，ID 为 `ledger-dev`；默认地址 `localhost:8848`，Group 为 `LEDGER_GROUP`。
+3. 核对[账户配置](account-service/src/main/resources/application-dev.yml)和[交易配置](trading-service/src/main/resources/application-dev.yml)，填写实际地址与凭据，无需 `.env`。Redis/Kafka 在使用相应业务能力时需要可用。
 
 Java 默认使用 dev 本地配置，Nacos 只负责注册与发现。test/prod 的环境切换和远端配置发布步骤见[配置与运行](docs/configuration.md#环境切换)。`application-test.yml` 是测试环境运行配置，与自动化测试代码无关。
 
@@ -92,12 +96,14 @@ java -jar trading-service/target/trading-service-0.1.0-SNAPSHOT-exec.jar
 
 无需导入环境变量文件。实际 Nacos 地址、namespace 或凭据与默认值不同时，可用命令行或部署环境变量覆盖，详见[临时覆盖配置](docs/configuration.md#临时覆盖配置)。
 
+运行时使用带 `-exec` 的 JAR，普通 JAR 用于模块依赖。启动后检查 Flyway 迁移日志、gRPC 实际监听端口及 Nacos 注册实例；数据库检查命令见[迁移结果](db/README.md#检查迁移结果)。停止服务使用 `Ctrl+C`。
+
 ### 地址与启动顺序
 
 | 进程 | 默认地址 | 启动顺序 |
 | --- | --- | --- |
-| 账户服务 | gRPC `localhost:8081` | 中间件就绪并完成数据库初始化后启动 |
-| 交易服务 | gRPC `localhost:8082` | 中间件就绪并完成数据库初始化后启动 |
+| 账户服务 | gRPC `localhost:8081` | 数据库与角色、Nacos 就绪后启动；Flyway 自动迁移 |
+| 交易服务 | gRPC `localhost:8082` | 数据库与角色、Nacos 就绪后启动；账户服务需在联调前可用 |
 | Go 网关（可选） | HTTP `localhost:8080` | Nacos 就绪并发布服务映射后即可启动，Java 服务可稍后启动 |
 
 表中是 dev 本地配置及 Nacos 发布示例中的默认端口。设置 `GRPC_PORT` 或修改对应 YAML 后，以服务实际监听端口为准。
@@ -128,7 +134,17 @@ grpcurl -plaintext localhost:8082 list
 grpcurl -plaintext -d '{}' localhost:8082 ledger.trading.v1.TradingService/SayHello
 ```
 
-默认请求返回 `Hello, World!`，响应中的 `service` 为 `trading-service`、`downstreamService` 为 `account-service`。仅列出反射接口不能证明下游调用成功。
+预期响应如下，字段顺序可能不同：
+
+```json
+{
+  "message": "Hello, World!",
+  "service": "trading-service",
+  "downstreamService": "account-service"
+}
+```
+
+仅列出反射接口不能证明下游调用成功。上述响应可确认示例调用链，但不验证数据库读写、Kafka 收发或资金一致性。
 
 业务协议按 `ledger/account/v1`、`ledger/trading/v1` 组织，详见[协议说明](ledger-grpc/README.md)。
 
@@ -139,9 +155,10 @@ grpcurl -plaintext -d '{}' localhost:8082 ledger.trading.v1.TradingService/SayHe
 先将 `gateway/config/config.yaml` 中的 `nacos` 地址、namespace、group 和凭据与 Java 服务对齐，将服务映射示例 `gateway/config/routes.example.yml` 发布到 Nacos：Data ID 为 `gateway-routes.yml`，Group 为 `LEDGER_GROUP`，namespace 默认为 `ledger-dev`。再从项目根目录启动：
 
 ```bash
-cd gateway
-go run ./cmd/gateway
+go -C gateway run ./cmd/gateway
 ```
+
+服务可用后，在浏览器打开[交易示例](http://localhost:8080/api/v1/trading/SayHello)，应得到与上方一致的响应。`/healthz` 检查 HTTP 进程，`/readyz` 只检查服务映射是否加载。
 
 启动配置、HTTP 调用、TLS、环境变量和热更新规则统一见[网关指南](gateway/README.md)。
 

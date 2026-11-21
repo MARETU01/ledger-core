@@ -2,6 +2,18 @@
 
 [返回项目首页](../README.md)
 
+## 选择配置入口
+
+| 场景 | 修改位置 | 生效方式 |
+| --- | --- | --- |
+| 本地启动 Java 服务 | 各服务 `application-dev.yml`，或进程环境变量 | 重启对应服务 |
+| 切换 Java 环境 | `SPRING_PROFILES_ACTIVE` 或 `--spring.profiles.active` | 启动时选择 profile |
+| 调整 test/prod 中间件参数 | 对应 namespace 的 `ledger-infrastructure.yml` 与服务专属配置 | 发布后重启对应服务验证 |
+| 调整网关监听、Nacos、TLS、token | `gateway/config/config.yaml` 或 `-config` 指定的文件 | 重启网关 |
+| 调整 HTTP 到 gRPC 的服务映射 | Nacos `gateway-routes.yml` | 有效配置整体热更新，无效更新保留旧配置 |
+
+首次运行按[项目首页](../README.md#本地启动)准备依赖；数据库和角色的创建步骤见[数据库迁移](../db/README.md#首次初始化)。Java 与 Go 网关分别读取配置，切换环境时需将两者的 Nacos 地址、namespace ID、group 和认证对齐。
+
 ## 配置文件的作用
 
 | 文件或来源 | 作用 |
@@ -57,7 +69,7 @@ spring:
 
 Group 默认 `LEDGER_GROUP`。namespace 必须提前创建；`NACOS_NAMESPACE` 可覆盖默认 ID。切换 profile 会选择对应 namespace，但不会自动创建 namespace、复制配置或替换已导出的 Nacos 地址。若显式设置了 `NACOS_NAMESPACE`，需在切换环境时一起调整。
 
-dev 的 `spring.cloud.nacos.config.enabled` 和 `import-check.enabled` 均为 false，`spring.cloud.nacos.discovery.enabled` 为 true。开发时直接修改各服务 `application-dev.yml` 中的数据库、Redis、Kafka 等参数，无需在 `ledger-dev` 发布任何配置；注册中心仍需可访问。test/prod 的公共与服务专属配置需先发布到对应 namespace。
+dev 的 `spring.cloud.nacos.config.enabled` 和 `import-check.enabled` 均为 false，`spring.cloud.nacos.discovery.enabled` 为 true。开发时直接修改各服务 `application-dev.yml` 中的数据库、Redis、Kafka 等参数，无需在 `ledger-dev` 发布 Java 运行配置；注册中心仍需可访问。启用 Go 网关时仍需发布 `gateway-routes.yml`。test/prod 的公共与服务专属配置需先发布到对应 namespace。
 
 ```bash
 # 默认开发环境，使用本地配置，只需准备中间件和 Nacos 注册中心

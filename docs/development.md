@@ -92,11 +92,20 @@ Redis 可注入 `StringRedisTemplate`，业务自行约定 key 前缀、序列�
 
 构建成功不表示中间件已连通。现有接口不访问存储，调用成功也不能证明数据库读写、消息收发或资金一致性。`application-test.yml` 属于运行环境配置，继续保留。
 
+首次验证可按以下顺序定位问题：
+
+1. 构建 Java 和测试 Go 网关，排除编译、打包及网关测试失败。
+2. 启动 Java 服务并检查[迁移历史](../db/README.md#检查迁移结果)、gRPC 监听日志和 Nacos 实例信息。
+3. 调用交易 SayHello，确认响应同时包含交易与账户服务名，再通过网关调用同一接口。
+
+修改服务发现、连接管理或调用策略时，重点验证实例移除、发现失败、并发请求、取消传播和停机排空。Java 共享客户端在设置 deadline 后同步执行服务发现；deadline 限制后续 RPC，但不会主动中断 `DiscoveryClient.getInstances()`，因此还需单独验证发现实现的等待与超时行为。
+
 ## 常见问题
 
 | 现象 | 检查与处理 |
 | --- | --- |
 | Enforcer 提示 Java 版本不匹配 | 检查 `java -version`、`mvn --version` 和 IDE Maven Runner，均应使用 JDK 25 |
+| Maven 下载出现 401 或长时间等待 | 检查日志中的仓库地址、Maven settings、认证和代理。依赖及插件已完整缓存时，可用 `mvn -o verify` 检查本地构建；离线成功不表示远端仓库问题已解决 |
 | Java 服务连接了错误的数据库/Redis/Kafka 地址 | dev 检查本地 `application-dev.yml`；test/prod 检查当前 namespace 下的公共配置及服务覆盖项；`POSTGRES_*` 等旧变量不再被配置引用 |
 | 切换到 test/prod 后无法连接 Nacos | 默认地址为 localhost:8848，按实际部署覆盖，并核对所选环境的 namespace、group 和认证 |
 | test/prod 的 Nacos 配置加载失败或数据源缺少 URL | 核对公共和服务专属 Data ID 均已发布且非空；不会回退到 dev 的本地配置 |
@@ -124,7 +133,7 @@ Redis 可注入 `StringRedisTemplate`，业务自行约定 key 前缀、序列�
 
 ## Go 网关开发
 
-网关使用独立 Go Modules，与 Maven 分开构建和测试。进入 `gateway/` 后执行 `go test ./...`、`go vet ./...`，需要并发检测时执行 `CGO_ENABLED=1 go test -race ./...`（需要 C 编译器）。
+网关使用独立 Go Modules，与 Maven 分开构建和测试。进入 `gateway/` 后执行 `go test ./...`、`go vet ./...`。并发检测需要启用 CGO 和可用的 C 编译器，Bash 与 PowerShell 命令见[网关测试](../gateway/README.md#测试)。
 
 网关测试使用测试后端，不要求运行 Java 服务或 Nacos。真实环境的 HTTP 调用示例见[网关指南](../gateway/README.md#启动与验证)。
 
