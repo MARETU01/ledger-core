@@ -6,7 +6,7 @@
 
 ## 添加业务持久层
 
-1. 在根目录 `db/account/` 或 `db/trading/` 下新增编号递增的 SQL 文件，并在启动服务前手动执行，具体命令见[数据库 SQL](../db/README.md)。
+1. 在所属服务的 `src/main/resources/db/migration/` 下新增 `V版本__说明.sql`，启动时由 Flyway 校验并执行，规则见[数据库迁移](../db/README.md)。
 2. 实体放在 `com.ledger.<服务>.infrastructure.persistence.entity`，通过 `@TableName(value = "表名", schema = "所属服务 schema")` 明确表归属。
 3. Mapper 放在 `com.ledger.<服务>.infrastructure.persistence.mapper`，添加 `@Mapper` 并继承 `BaseMapper<实体>`。starter 会扫描 Spring Boot 应用包下的 `@Mapper`；跨包扫描时显式配置 `@MapperScan`。
 4. 业务事务边界放在 application 层的 Spring Bean，通过 `@Transactional` 管理多个 Mapper 操作。复杂查询仍可使用 Mapper XML，路径为 `src/main/resources/mapper/**/*.xml`。
@@ -32,7 +32,7 @@ accountMapper.selectPage(new Page<>(1, 20),
 
 以下仅演示持久层接入方式，尚未写入代码仓库或数据库，不代表完整的资金账户模型。示例不包含余额或记账操作。
 
-新增 `db/account/002_create_account_profile.sql`：
+新增 `account-service/src/main/resources/db/migration/V2__create_account_profile.sql`：
 
 ```sql
 CREATE TABLE account.account_profile (
@@ -144,7 +144,7 @@ public class AccountProfileService {
 
 对应声明为 `long countByStatus(@Param("status") String status);`，使用 `org.apache.ibatis.annotations.Param`。参数值使用 `#{...}` 绑定；列名、排序字段等不能直接拼接外部输入。
 
-数据库脚本统一保存在根目录 `db/account/` 和 `db/trading/`，按编号递增并手动执行。已执行的文件保留原内容，结构调整新增后续文件；各环境自行记录已执行编号。服务不会扫描或自动执行这些脚本，Mapper 和实体注解也不会创建 schema 或表。初始化与执行命令见[数据库 SQL](../db/README.md)。
+数据库脚本保存在各服务的 `src/main/resources/db/migration/`，随 JAR 打包，由 Flyway 在启动时校验并按版本执行。历史分别保存在 `account.flyway_schema_history` 和 `trading.flyway_schema_history`。已执行的文件保留原内容，结构调整新增后续版本；Mapper 和实体注解不会创建表。已有数据库接入、权限与发布方式见[数据库迁移](../db/README.md)。
 
 ## 已配置的行为
 

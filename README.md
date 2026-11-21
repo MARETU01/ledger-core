@@ -11,7 +11,7 @@
 | Java 服务 | gRPC 服务端、统一异常处理、请求标识与调用日志、共享客户端与连接管理、Nacos 注册与发现、虚拟线程执行器 | 账户与交易用例、业务校验、自动化测试 |
 | 动态网关 | HTTP/JSON 转换、协议按需加载、服务发现、路由热更新 | 用户身份与权限体系、流量治理 |
 | 数据与消息 | PostgreSQL、MyBatis-Plus、Redis、Kafka 客户端配置 | 业务表、账务规则、业务幂等、可靠事件投递 |
-| 运行交付 | 环境配置、手动 SQL、构建与网关测试命令 | 数据库迁移管理、持续集成、对账与恢复流程 |
+| 运行交付 | 环境配置、Flyway 版本化迁移、构建与网关测试命令 | 持续集成、对账与恢复流程 |
 
 Java 模块当前没有自动化测试及测试依赖；Go 网关保留独立测试。当前架构及约束见[架构说明](docs/architecture.md)，后续建设顺序见[架构演进路线](docs/roadmap.md)。
 
@@ -24,7 +24,7 @@ Java 模块当前没有自动化测试及测试依赖；Go 网关保留独立测
 | 了解模块依赖、调用链和当前边界 | [架构说明](docs/architecture.md) |
 | 了解架构差距、建设顺序和阶段验收目标 | [架构演进路线](docs/roadmap.md) |
 | 配置数据库、Nacos、Kafka、Redis 或复用已有中间件 | [配置与运行](docs/configuration.md) |
-| 初始化数据库、手动执行 SQL | [数据库 SQL](db/README.md) |
+| 初始化 schema、新增迁移及接入已有数据库 | [数据库迁移](db/README.md) |
 | 使用 MyBatis-Plus、新增表、Mapper 和事务 | [数据库访问约定](docs/persistence.md) |
 | 修改协议、新增功能、构建验证和排查问题 | [开发与排错](docs/development.md) |
 | 使用共享客户端、配置调用策略或维护协议 | [gRPC 模块指南](ledger-grpc/README.md) |
@@ -40,6 +40,7 @@ Java 模块当前没有自动化测试及测试依赖；Go 网关保留独立测
 | Spring gRPC | 1.1.2，由 Spring Boot 管理 |
 | Go（网关） | 1.27.4 |
 | MyBatis-Plus | 3.5.18.1，Spring Boot 4 starter |
+| Flyway | 由 Spring Boot 管理，包含 PostgreSQL 支持模块 |
 | Lombok | 由 Spring Boot 管理，仅用于编译期代码生成 |
 
 Java 依赖版本以根 [pom.xml](pom.xml) 及其 BOM 为准，Go 版本以 [gateway/go.mod](gateway/go.mod) 为准。PostgreSQL、Nacos、Kafka 和 Redis 由运行环境提供，仓库不再附带中间件 Compose 文件。
@@ -53,7 +54,7 @@ trading-service/           # 交易服务，gRPC 8082，独立 trading schema
 gateway/                   # Go 动态网关，独立 Go Modules 构建
   config/config.yaml       # 网关启动配置：监听、Nacos、TLS、token 等
   config/routes.example.yml # HTTP → gRPC 服务映射示例，需发布到 Nacos
-db/                        # 按服务划分的 SQL，部署前手动执行
+db/                        # 数据库迁移说明；SQL 位于各服务 resources/db/migration
 docs/                      # 架构、运行配置、持久层与开发说明
 ```
 
@@ -69,7 +70,7 @@ docs/                      # 架构、运行配置、持久层与开发说明
 
 1. 创建 Nacos namespace，ID 为 `ledger-dev`；默认地址 `localhost:8848`，Group 为 `LEDGER_GROUP`。
 2. 核对两个服务的 `application-dev.yml`，填写实际数据库、Nacos、Redis 和 Kafka 参数，无需 `.env`。
-3. 按[数据库 SQL](db/README.md)执行两份 `001_create_schema.sql`；服务不会自动建 schema 或表。
+3. 准备 PostgreSQL 数据库与登录角色，并授予所属 schema 的迁移权限；服务启动时由 Flyway 自动创建 schema、记录并执行迁移。已有数据库先按[数据库迁移](db/README.md)核对接入条件。
 
 Java 默认使用 dev 本地配置，Nacos 只负责注册与发现。test/prod 的环境切换和远端配置发布步骤见[配置与运行](docs/configuration.md#环境切换)。`application-test.yml` 是测试环境运行配置，与自动化测试代码无关。
 
@@ -79,7 +80,7 @@ Java 默认使用 dev 本地配置，Nacos 只负责注册与发现。test/prod 
 
 ```bash
 mvn clean verify
-# 首次启动前，先按 db/README.md 手动执行数据库初始化 SQL。
+# 启动时自动执行所属服务的 Flyway 迁移；数据库及角色需提前准备。
 java -jar account-service/target/account-service-0.1.0-SNAPSHOT-exec.jar
 ```
 

@@ -17,7 +17,7 @@ flowchart LR
     Account -.->|注册| Nacos
 ```
 
-图中实线表示现有 Hello 请求链，虚线表示注册、发现和网关配置依赖。test/prod 的 Java 服务还从 Nacos 导入运行配置。PostgreSQL、Kafka 和 Redis 当前仅接入客户端配置，未参与 Hello 调用链。
+图中实线表示现有 Hello 请求链，虚线表示注册、发现和网关配置依赖。test/prod 的 Java 服务还从 Nacos 导入运行配置。PostgreSQL 在启动时由 Flyway 执行迁移；Kafka 和 Redis 当前仅接入客户端配置，三者均未参与 Hello 调用链。
 
 ## 模块与职责
 
@@ -76,13 +76,13 @@ com.ledger.account 或 com.ledger.trading
         └── mapper           # @Mapper + BaseMapper
 ```
 
-账户服务拥有 `account` schema，交易服务拥有 `trading` schema；两者当前共享开发数据库和登录用户。schema 划分是项目约定，当前不是数据库权限隔离。schema 通过根目录 `db/` 中的 SQL 手动创建，服务启动时不自动执行脚本。MyBatis 实体需显式标注所属 schema，业务 SQL 使用完整的 schema.table 名称。服务间访问数据通过 gRPC 或后续业务事件，不直接查询对方表。
+账户服务拥有 `account` schema，交易服务拥有 `trading` schema；两者当前共享开发数据库和登录用户。schema 划分是项目约定，当前不是数据库权限隔离。各服务通过 Flyway 在启动时创建所属 schema，执行自身 `resources/db/migration` 下的 SQL，迁移历史分别保存在所属 schema。MyBatis 实体需显式标注所属 schema，业务 SQL 使用完整的 schema.table 名称。服务间访问数据通过 gRPC 或后续业务事件，不直接查询对方表。
 
 新增业务的依赖约定：接口层调用 application 用例；application 编排领域规则并声明本地事务；domain 定义规则和仓储接口；infrastructure 实现仓储和外部服务适配。领域代码应保持独立，不依赖 gRPC 消息、MyBatis 实体或中间件客户端。当前 Hello 直接在接口层生成响应或调用下游，业务实现时应按上述职责组织。
 
 ## 当前实现边界
 
-已具备基础构建、服务启动、配置中心、服务发现、手动数据库初始化脚本、MyBatis-Plus CRUD/分页/乐观锁能力，以及 Redis/Kafka 客户端配置。
+已具备基础构建、服务启动、配置中心、服务发现、Flyway 版本化数据库迁移、MyBatis-Plus CRUD/分页/乐观锁能力，以及 Redis/Kafka 客户端配置。
 
 目前没有业务表、资金账务、委托状态机、业务消息 topic 或监听器，也没有业务缓存。当前仅有 Hello 学习接口及交易到账户的示例调用，没有资金或交易业务 RPC。Go 网关已支持动态 unary 调用、Nacos 路由热更新和可选上游 TLS，协议描述可通过反射或本地描述文件加载，详见[网关指南](../gateway/README.md)。完整用户鉴权、资金一致性和业务幂等仍需随业务实现。
 
@@ -98,7 +98,7 @@ com.ledger.account 或 com.ledger.trading
 | 身份权限 | 网关可配置固定 Bearer token，并转发有限 metadata | 尚无用户认证、账户归属校验和服务身份体系 |
 | 可观测性 | 网关与 Java gRPC 调用通过请求 ID 关联，Java 客户端与服务端记录方法、状态和耗时 | 尚未接入完整追踪、业务指标和资金审计 |
 | 健康检查 | 网关 `/readyz` 检查配置是否加载 | 不能据此判断下游、协议或中间件可用 |
-| 数据演进 | SQL 手动执行，无自动迁移历史 | 发布时需独立管理执行顺序、兼容性和执行记录 |
+| 数据演进 | 各服务独立的 Flyway 脚本和历史表，启动时校验并迁移 | 发布仍需评审兼容性、权限及已有数据库的接入方式 |
 | 验证 | Java 模块无自动化测试及测试依赖；网关有测试后端 | Java 构建仅验证编译打包，真实调用链与业务一致性需另行验证 |
 
 后续能力应通过可复现的故障场景验证，阶段目标见[架构演进路线](roadmap.md)。

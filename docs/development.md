@@ -59,7 +59,7 @@ IDE 可直接运行 `AccountApplication` 或 `TradingApplication`，默认使用
 
 ## 新增数据库访问
 
-按[数据库访问约定](persistence.md)在根目录 `db/` 添加并手动执行 SQL，再添加实体与 Mapper。schema 归属、主键、版本字段由业务明确声明。多个 Mapper 操作需要原子性时，在被其他 Spring Bean 调用的 application 层公共方法上标记 `@Transactional`。
+按[数据库访问约定](persistence.md)在所属服务的 `src/main/resources/db/migration/` 添加版本化 SQL，再添加实体与 Mapper；Flyway 在启动时执行迁移。schema 归属、主键、版本字段由业务明确声明。多个 Mapper 操作需要原子性时，在被其他 Spring Bean 调用的 application 层公共方法上标记 `@Transactional`。
 
 ## 新增业务用例
 
@@ -106,7 +106,8 @@ Redis 可注入 `StringRedisTemplate`，业务自行约定 key 前缀、序列�
 | gRPC 返回 DEADLINE_EXCEEDED | 检查下游服务地址、网络及耗时，以及调用方设置的 deadline |
 | grpcurl list 失败 | 确认访问的是 Java 服务端口 8081/8082，并使用 `-plaintext`；8848/9848 属于 Nacos |
 | Nacos 登录或连接失败 | 按实际部署区分 API、客户端 gRPC 和控制台端口，核对认证与 TLS；Java 和 Go 网关的连接配置需分别填写 |
-| PostgreSQL relation does not exist | 核对根目录 `db/` 中的 SQL 是否已在目标数据库手动执行，以及 `@TableName` 的 schema/table；MyBatis-Plus 不自动建表 |
+| PostgreSQL relation does not exist | 核对所属服务迁移是否已执行、历史表版本和 `@TableName` 的 schema/table；MyBatis-Plus 不自动建表 |
+| Flyway 启动校验失败 | 核对目标 schema、迁移权限、已有历史及脚本校验和；非空 schema 的接入规则见[数据库迁移](../db/README.md)，不要直接修改已执行脚本或自动 baseline |
 | Mapper 无法注入 | 确认有 `@Mapper`，位于应用扫描包下；跨包使用 `@MapperScan` |
 | Invalid bound statement | 核对 Mapper 方法名、XML namespace、XML 路径及是否已打包到资源目录 |
 | 乐观锁没有拦截更新 | 确认实体有 `@Version`、数据库版本字段非空、实体携带读取到的版本，并检查 updateById 返回值 |

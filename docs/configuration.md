@@ -6,7 +6,7 @@
 
 | 文件或来源 | 作用 |
 | --- | --- |
-| [账户 application.yml](../account-service/src/main/resources/application.yml) / [交易 application.yml](../trading-service/src/main/resources/application.yml) | 服务名、默认 dev、非 HTTP 启动方式、Nacos 公共配置，以及交易服务的下游客户端启用项 |
+| [账户 application.yml](../account-service/src/main/resources/application.yml) / [交易 application.yml](../trading-service/src/main/resources/application.yml) | 服务名、默认 dev、非 HTTP 启动方式、Flyway 所属 schema 与迁移策略、Nacos 公共配置，以及交易服务的下游客户端启用项 |
 | [账户 application-dev.yml](../account-service/src/main/resources/application-dev.yml) / [交易 application-dev.yml](../trading-service/src/main/resources/application-dev.yml) | 完整的本地开发配置，也是准备 test/prod 运行参数的参考；Nacos 仅用于注册与发现，配置中心关闭 |
 | 各服务的 `application-test.yml` / `application-prod.yml` | 环境对应的 Nacos 地址、namespace 及远端配置导入 |
 | Nacos 的 `ledger-infrastructure.yml` | 数据库、Redis、Kafka、连接池、MyBatis、日志等公共运行配置 |
@@ -150,13 +150,15 @@ spring:
 
 配置中的 `${spring.application.name}` 在应用端解析，用于 Kafka consumer group；服务端口的 `${GRPC_PORT:8081}` / `${GRPC_PORT:8082}` 支持实例级覆盖。数据库、Redis、Kafka 等其他参数在 Nacos 中填写目标环境的实际值。
 
-完成数据库初始化后启动服务，按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查调用链。发布运行配置后重启对应服务验证，目前不保证数据库连接池、Kafka 客户端或 gRPC 端口支持即时刷新。修改本地参考配置不会自动发布到 Nacos，配置中心的修改也不会自动写回仓库。
+Flyway 的 `spring.flyway` 默认项保留在各服务本地 `application.yml`，适用于 dev/test/prod，不要将两个服务的 `default-schema` / `schemas` 合并进公共 Nacos 配置。默认复用当前环境数据源，启动时自动迁移。使用独立迁移角色时，将 `spring.flyway.url`、`user`、`password` 放入对应服务的专属配置。已有数据库接入及发布任务模式见[数据库迁移](../db/README.md)。
+
+准备好数据库、角色和迁移权限后启动服务，确认 Flyway 迁移成功，再按[项目首页的 gRPC 验证](../README.md#grpc-验证)检查调用链。发布运行配置后重启对应服务验证，目前不保证数据库连接池、Kafka 客户端或 gRPC 端口支持即时刷新。修改本地参考配置不会自动发布到 Nacos，配置中心的修改也不会自动写回仓库。
 
 ## 复用已有中间件
 
 Java 的 Nacos 默认连接参数位于本地 YAML；地址或认证不同于默认值时，通过部署环境变量、IDE 或命令行覆盖。dev 在本地 `application-dev.yml` 中配置中间件，test/prod 在目标 namespace 的远端 YAML 中配置：
 
-- PostgreSQL：修改 `spring.datasource` 的库、用户和密码，并按[数据库 SQL](../db/README.md)手动执行初始化或结构变更脚本。
+- PostgreSQL：修改 `spring.datasource` 的库、用户和密码，按[数据库迁移](../db/README.md)核对已有结构及权限；启动时由 Flyway 执行所属服务的迁移。
 - Redis：修改 `spring.data.redis` 的地址、ACL 用户和密码。
 - Kafka：修改 `spring.kafka` 的地址、安全协议及 SASL 参数。broker 的 advertised address 也必须从 Java 服务所在机器可达。
 - Nacos：地址、namespace、group 和认证均从本地启动配置取得；TLS 需按部署环境配置。Go 网关使用独立的 YAML 连接配置。
@@ -174,7 +176,7 @@ spring:
 
 ## 中间件生命周期
 
-中间件由部署环境单独管理。启动服务前确认 Nacos 注册中心和数据库可访问，并完成 schema 初始化；test/prod 还需确认远端配置已发布。使用 Kafka/Redis 业务能力时需对应服务可用。修改 YAML 中的数据库密码只改变客户端配置，不会修改数据库内的密码。数据库数据、Nacos 配置和消息的持久化策略由实际部署决定。
+中间件由部署环境单独管理。启动服务前确认 Nacos 注册中心和数据库可访问，数据库角色具备 Flyway 迁移权限；schema 及后续业务表由迁移管理。test/prod 还需确认远端配置已发布。使用 Kafka/Redis 业务能力时需对应服务可用。修改 YAML 中的数据库密码只改变客户端配置，不会修改数据库内的密码。数据库数据、Nacos 配置和消息的持久化策略由实际部署决定。
 
 ## Go 动态网关
 

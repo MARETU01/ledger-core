@@ -5,6 +5,16 @@ spring:
     default: dev
   main:
     web-application-type: none
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    default-schema: trading
+    schemas: trading
+    create-schemas: true
+    clean-disabled: true
+    baseline-on-migrate: false
+    validate-on-migrate: true
+    validate-migration-naming: true
   cloud:
     nacos:
       username: ${NACOS_USERNAME:}
