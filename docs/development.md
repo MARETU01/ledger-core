@@ -34,7 +34,7 @@ IDE 可直接运行 `AccountApplication` 或 `TradingApplication`，默认使用
 
 服务端使用 `org.springframework.grpc.server.service.GrpcService` 标记；共享客户端通过条件自动装配创建。当前尚未接入 `@ImportGrpcClients` 或字段注入式 `@GrpcClient`。
 
-服务端异常由共享模块的 `@GrpcAdvice` / `@GrpcExceptionHandler` 统一处理。Endpoint 中可直接抛出异常，已有 gRPC 状态及 trailers 保留，其他异常记录后返回统一 `INTERNAL`；无需在每个同步 RPC 中重复捕获。业务错误应明确选择 gRPC 状态，异步任务通过 `observer.onError` 返回异常。替换和关闭默认处理的方式见[服务端统一异常处理](../ledger-grpc/README.md#服务端统一异常处理)。
+服务端异常由共享模块的 `@GrpcAdvice` / `@GrpcExceptionHandler` 统一处理。Endpoint 中可直接抛出异常，已有 gRPC 状态及 trailers 保留；入参校验的 `ConstraintViolationException` 返回固定的 `INVALID_ARGUMENT`，返回值校验失败和其他异常记录后返回统一 `INTERNAL`。无需在每个同步 RPC 中重复捕获。业务错误应明确选择 gRPC 状态，异步任务通过 `observer.onError` 返回异常。替换和关闭默认处理的方式见[服务端统一异常处理](../ledger-grpc/README.md#服务端统一异常处理)。
 
 请求日志通过 `@GlobalServerInterceptor` / `@Order(-100)` 接入。排查调用时按日志中的 `request_id` 关联网关、交易和账户服务，再查看 `side`、`method`、`status` 和 `duration_ms`。业务代码可读取 `GrpcRequestContext.currentRequestId()` 或 MDC 的 `requestId`；使用共享客户端时会自动传递 ID。开关与异步上下文说明见[请求标识与调用日志](../ledger-grpc/README.md#请求标识与调用日志)。
 
@@ -85,7 +85,7 @@ Redis 可注入 `StringRedisTemplate`，业务自行约定 key 前缀、序列�
 
 | 验证 | 命令或入口 | 范围 |
 | --- | --- | --- |
-| Java 编译打包 | 根目录执行 `mvn verify`；改名或删除类后执行 `mvn clean verify` | 生成协议、编译并打包，不执行 Java 自动化测试，无需启动中间件 |
+| Java 构建与测试 | 根目录执行 `mvn verify`；改名或删除类后执行 `mvn clean verify` | 生成协议、执行共享模块配置校验和异常映射测试并打包，无需启动中间件 |
 | gRPC 服务与调用链 | 启动服务后按[首页说明](../README.md#grpc-验证)调用 | 反射列表检查单个服务；调用交易接口进一步检查交易到账户的发现与调用 |
 | HTTP 网关联调 | 按[网关指南](../gateway/README.md#启动与验证)调用 | 远端服务映射、协议加载、HTTP 到 gRPC 的转换 |
 | Go 自动化测试 | 根目录执行 `go -C gateway test ./...` | 使用测试后端，不验证真实 Nacos 或 Java 服务 |

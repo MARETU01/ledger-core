@@ -4,6 +4,8 @@ import com.ledger.grpc.logging.GrpcRequestContext;
 import io.grpc.Status;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.ElementKind;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.grpc.server.advice.GrpcAdvice;
@@ -23,6 +25,20 @@ public class DefaultGrpcExceptionAdvice {
     @GrpcExceptionHandler
     public StatusException handleStatusException(StatusException exception) {
         return exception;
+    }
+
+    @GrpcExceptionHandler
+    public Status handleConstraintViolation(ConstraintViolationException exception) {
+        // A return-value violation is a server contract failure, not invalid input.
+        for (var violation : exception.getConstraintViolations()) {
+            for (var node : violation.getPropertyPath()) {
+                if (node.getKind() == ElementKind.RETURN_VALUE) {
+                    return handleUnexpectedException(exception);
+                }
+            }
+        }
+        // Do not expose rejected values or validator messages to remote callers.
+        return Status.INVALID_ARGUMENT.withDescription("Invalid request");
     }
 
     @GrpcExceptionHandler

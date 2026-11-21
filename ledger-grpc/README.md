@@ -82,7 +82,7 @@ public class AccountCaller {
 
 交易服务已在自身 `application.yml` 启用账户客户端；账户服务默认不启用下游客户端。超时、服务名和传输配置可由使用方环境配置覆盖。启用 TLS 时需同时配置服务端 TLS，当前不提供自定义 CA、mTLS 或凭据拦截器的自动装配。
 
-`GrpcClientProperties` 通过 `@ConfigurationProperties` 绑定属性，Lombok 的 `@Getter` / `@Setter` 生成访问方法。客户端与连接管理器在构造时校验必要参数；未启用的客户端不会创建。属性变更后重启使用方服务验证，配置来源见[配置与运行](../docs/configuration.md#共享-grpc-客户端)。
+`GrpcClientProperties` 通过 `@ConfigurationProperties` 绑定属性，并通过 `@Validated` 和级联 `@Valid` 在启动时检查配置。客户端总开关启用时，`shutdown-timeout` 必须为正数；已启用端点的 `service-id` 不得为空白，`timeout` 必须为正数。时间预算还必须能转换为有符号 64 位纳秒值；禁用端点不检查其服务名和时间预算。客户端与连接管理器保留构造参数检查，支持非 Spring 调用。使用方需引入 `spring-boot-starter-validation`，两个业务服务已配置。属性变更后重启使用方服务验证，配置来源见[配置与运行](../docs/configuration.md#共享-grpc-客户端)。
 
 ## 服务发现与连接生命周期
 
@@ -125,9 +125,13 @@ RPC 回调期间 MDC 的 `requestId` 与当前请求一致，回调结束后恢�
 | 异常 | 默认处理 |
 | --- | --- |
 | `StatusRuntimeException` / `StatusException` | 保留已有 gRPC 状态、描述和 trailers |
+| 入参或请求对象的 `ConstraintViolationException` | 返回 `INVALID_ARGUMENT`，描述固定为 `Invalid request`，不返回校验消息或拒绝的值 |
+| 含返回值约束违反的 `ConstraintViolationException` | 作为服务端错误记录并返回 `INTERNAL` |
 | 其他 `Exception` | 在服务端记录异常堆栈，向调用方返回 `INTERNAL`，描述固定为 `Internal server error` |
 
 业务参数错误等预期失败需显式使用相应状态，例如 `Status.INVALID_ARGUMENT.withDescription("Invalid request").asRuntimeException()`。默认不会将所有 `IllegalArgumentException` 解释为用户输入错误，内部异常消息也不会直接写入响应。显式 gRPC 状态中的描述和 trailers 由抛出方负责定义。
+
+两个业务服务已引入 Jakarta Validation 实现。后续业务命令可声明约束，在 Spring 管理的应用服务上使用 `@Validated`、方法参数使用 `@Valid`，并通过代理调用触发校验。默认异常映射针对 `ConstraintViolationException`；返回值约束失败仍属于内部错误。Protobuf 生成类不会自动获得字段约束，也不要修改生成代码。现有 Hello 接口仍允许空名称，账户服务继续使用 `World` 默认值。
 
 默认策略在 Spring Boot 的 gRPC advice 基础设施之前注册。使用方声明自己的 `@GrpcAdvice` Bean 时，默认 advice 整体退出，由使用方完整定义异常映射。也可设置 `ledger.grpc.server.exception-handling.enabled=false` 关闭默认策略，此时沿用框架和使用方的处理方式。
 
@@ -164,7 +168,7 @@ RPC 请求和响应统一使用 `<方法名>Request`、`<方法名>Response`，�
 
 ## 构建与扩展
 
-从项目根目录执行 `mvn -pl ledger-grpc -am verify`，编译协议、共享客户端并打包，无需运行 Nacos 或数据库。当前模块未包含自动化测试及测试依赖；真实服务发现、RPC 调用与连接生命周期需在联调环境中验证。
+从项目根目录执行 `mvn -pl ledger-grpc -am verify`，编译协议、执行配置校验和异常映射测试并打包，无需运行 Nacos 或数据库。测试覆盖配置绑定、禁用端点、非法超时及校验错误状态；真实服务发现、RPC 调用与连接生命周期需在联调环境中验证。
 
 新增 RPC 的改动顺序：
 
