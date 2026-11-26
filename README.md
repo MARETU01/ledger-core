@@ -38,8 +38,8 @@ Java 共享模块已有配置校验和异常映射自动化测试，业务服务
 | --- | --- |
 | JDK | 25，Maven Enforcer 限定 `[25,26)` |
 | Maven | 3.9+ |
-| Spring Boot | 4.1.2 |
-| Spring Cloud | 2025.1.4 |
+| Spring Boot | 4.1.3 |
+| Spring Cloud | 2025.1.5 |
 | Spring Cloud Alibaba | 2025.1.0.0 |
 | Spring gRPC | 1.1.2，由 Spring Boot 管理 |
 | Go（网关） | 1.27.4 |
